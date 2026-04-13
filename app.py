@@ -53,6 +53,16 @@ if st.button("分析開始"):
     info = best_info
     dispatch_candidates = best_dispatch
 
+# 候補病院表示
+st.subheader("候補病院")
+
+for cand in candidates:
+    st.write("-------------")
+    st.write("病院名:", cand["病院名"])
+    st.write("地域:", cand["地域"])
+    st.write("最寄駅:", cand["最寄駅"])
+    st.write("病床数:", cand["病床数"])
+
     # 病院基本情報表示
     st.subheader("病院基本情報")
 
