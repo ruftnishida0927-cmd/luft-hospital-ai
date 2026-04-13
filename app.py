@@ -6,6 +6,7 @@ from facility_standard import get_facility_standard
 from nursing_config import get_nursing_config
 from staff_contact import get_staff_contact
 from excel_export import export_excel
+from dispatch_search import search_dispatch_jobs
 
 st.set_page_config(page_title="ルフト病院分析AI", layout="centered")
 
@@ -69,23 +70,7 @@ if st.button("分析開始"):
     # 派遣求人調査（新規）
     st.subheader("派遣求人調査")
 
-    st.write("派遣会社経由の病院名非公開求人を調査中…")
-
-    # 仮候補（後でスクレイピングに変更）
-    dispatch_candidates = [
-        {
-            "派遣会社": "スタッフサービス・メディカル",
-            "勤務地": "京都市東部",
-            "職種": "看護助手",
-            "一致度": "高"
-        },
-        {
-            "派遣会社": "マンパワー",
-            "勤務地": "宇治エリア",
-            "職種": "医療事務",
-            "一致度": "中"
-        }
-    ]
+   dispatch_candidates = search_dispatch_jobs(hospital)
 
     for c in dispatch_candidates:
         st.write("-------------")
