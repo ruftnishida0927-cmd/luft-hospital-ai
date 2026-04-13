@@ -10,7 +10,12 @@ def fetch(url):
     try:
         return requests.get(
             url,
-            headers={"User-Agent": "Mozilla/5.0"},
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                "Accept-Language": "ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+                "Connection": "keep-alive"
+            },
             timeout=10
         )
     except:
@@ -18,8 +23,7 @@ def fetch(url):
 
 
 def search_google_links(query):
-
-    url = f"https://www.google.com/search?q={query}"
+    url = f"https://www.google.com/search?q={query}&hl=ja&num=10"
 
     r = fetch(url)
 
@@ -47,41 +51,43 @@ def search_google_links(query):
 
         links.append(href)
 
-    return links[:2]
+    deduped = []
+    for link in links:
+        if link not in deduped:
+            deduped.append(link)
+
+    return deduped[:3]
 
 
 def extract_page_text(url):
-
     r = fetch(url)
 
     if not r:
         return ""
 
     soup = BeautifulSoup(r.text, "html.parser")
-
     return soup.get_text()
 
 
 def search_dispatch_jobs(hospital_info):
-
     name = hospital_info["病院名"]
+    region = hospital_info.get("地域", "不明")
+    station = hospital_info.get("最寄駅", "不明")
 
     queries = [
-        f"{name} 看護助手 派遣",
-        f"{name} 医療事務 派遣",
-        f"{name} 看護補助 派遣",
-        f"{name} 病院 派遣 非公開",
-        f"{name} 無資格 病院 派遣",
+        f"{name} 看護助手 派遣 {region}",
+        f"{name} 医療事務 派遣 {region}",
+        f"{name} 看護補助 派遣 {region}",
+        f"{station} 看護助手 派遣",
+        f"{station} 医療事務 派遣"
     ]
 
     results = []
 
     for query in queries:
-
         links = search_google_links(query)
 
         for link in links:
-
             try:
                 text = extract_page_text(link)
 
@@ -114,4 +120,4 @@ def search_dispatch_jobs(hospital_info):
         reverse=True
     )
 
-    return results[:2]
+    return results[:3]
