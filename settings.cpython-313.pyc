@@ -1,0 +1,32 @@
+import pandas as pd
+from src.orchestrator import HospitalAnalysisOrchestrator
+from src.exporters import export_to_excel, export_to_csv_bundle
+
+
+def run_batch_from_dataframe(input_df: pd.DataFrame) -> dict:
+    orchestrator = HospitalAnalysisOrchestrator()
+    package = {
+        "hospital_profile": [],
+        "hiring_contacts": [],
+        "facility_standards": [],
+        "recruitment_signals": [],
+        "phase_signals": [],
+        "policy_updates": [],
+        "summary_table": [],
+    }
+    for _, row in input_df.iterrows():
+        hospital_name = str(row.get("hospital_name", "")).strip()
+        prefecture = str(row.get("prefecture", "")).strip()
+        if not hospital_name:
+            continue
+        result = orchestrator.run(hospital_name=hospital_name, prefecture=prefecture)
+        for key in package.keys():
+            package[key].extend(result.get(key, []))
+    excel_path = export_to_excel(package)
+    csv_zip_path = export_to_csv_bundle(package)
+    return {
+        "summary_df": pd.DataFrame(package["summary_table"]),
+        "excel_path": excel_path,
+        "csv_zip_path": csv_zip_path,
+        "package": package,
+    }
