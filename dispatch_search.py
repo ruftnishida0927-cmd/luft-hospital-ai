@@ -1,9 +1,12 @@
 # -*- coding: utf-8 -*-
 import requests
 from bs4 import BeautifulSoup
+from station_search import get_station
 
 
 def search_dispatch_jobs(hospital):
+
+    station = get_station(hospital)
 
     keywords = [
         "看護助手 派遣",
@@ -22,7 +25,7 @@ def search_dispatch_jobs(hospital):
     for site in sites:
         for k in keywords:
 
-            query = f"{hospital} {k}"
+            query = f"{station} {k}"
             url = site + query
 
             try:
@@ -43,7 +46,7 @@ def search_dispatch_jobs(hospital):
 
                     results.append({
                         "派遣会社": "検索結果",
-                        "勤務地": hospital,
+                        "勤務地": station,
                         "職種": k,
                         "一致度": "候補"
                     })
@@ -54,7 +57,7 @@ def search_dispatch_jobs(hospital):
     if len(results) == 0:
         results = [{
             "派遣会社": "該当なし",
-            "勤務地": hospital,
+            "勤務地": station,
             "職種": "派遣求人未検出",
             "一致度": "-"
         }]
