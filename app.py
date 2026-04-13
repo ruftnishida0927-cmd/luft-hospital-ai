@@ -78,6 +78,7 @@ if st.button("分析開始"):
         st.write("勤務地:", c["勤務地"])
         st.write("職種:", c["職種"])
         st.write("一致度:", c["一致度"])
+        st.write("リンク:", c["URL"])
 
     st.success("分析完了")
 
