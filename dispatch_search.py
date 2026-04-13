@@ -1,115 +1,117 @@
 # -*- coding: utf-8 -*-
 import requests
 from bs4 import BeautifulSoup
-from station_search import get_station
+
+from extractors import build_job_features
+from match_engine import build_match_result
 
 
-def detect_company(url):
-
-    if "indeed" in url:
-        return "Indeed"
-
-    if "staffservice" in url:
-        return "スタッフサービス"
-
-    if "manpower" in url:
-        return "マンパワー"
-
-    if "job-medley" in url:
-        return "ジョブメドレー"
-
-    if "mc-nurse" in url:
-        return "メディカルコンシェルジュ"
-
-    return "その他"
-
-
-def build_keywords(station):
-
-    return [
-        f"{station} 看護助手 派遣",
-        f"{station} 医療事務 派遣",
-        f"{station} 病院 派遣",
-        f"{station} 看護補助 派遣",
-    ]
-
-
-def search_google(query):
-
-    url = "https://www.google.com/search?q=" + query
-
+def fetch(url):
     try:
-        r = requests.get(
+        return requests.get(
             url,
             headers={"User-Agent": "Mozilla/5.0"},
-            timeout=5
+            timeout=10
         )
-
-        soup = BeautifulSoup(r.text, "html.parser")
-
-        links = []
-
-        for a in soup.select("a"):
-            href = a.get("href")
-
-            if href and "http" in href:
-                links.append(href)
-
-        return links[:10]
-
     except:
+        return None
+
+
+def search_google_links(query):
+
+    url = f"https://www.google.com/search?q={query}"
+
+    r = fetch(url)
+
+    if not r:
         return []
 
+    soup = BeautifulSoup(r.text, "html.parser")
 
-def score_match(url, station):
+    links = []
 
-    score = 50
+    for a in soup.select("a"):
+        href = a.get("href")
 
-    if station in url:
-        score += 20
+        if not href:
+            continue
 
-    if "看護" in url:
-        score += 10
+        if "http" not in href:
+            continue
 
-    if "派遣" in url:
-        score += 10
+        if "google" in href:
+            continue
 
-    return f"{score}%"
+        if "youtube" in href:
+            continue
+
+        links.append(href)
+
+    return links[:5]
 
 
-def search_dispatch_jobs(hospital):
+def extract_page_text(url):
 
-    station = get_station(hospital)
+    r = fetch(url)
 
-    keywords = build_keywords(station)
+    if not r:
+        return ""
+
+    soup = BeautifulSoup(r.text, "html.parser")
+
+    return soup.get_text()
+
+
+def search_dispatch_jobs(hospital_info):
+
+    name = hospital_info["病院名"]
+
+    queries = [
+        f"{name} 看護助手 派遣",
+        f"{name} 医療事務 派遣",
+        f"{name} 看護補助 派遣",
+        f"{name} 病院 派遣 非公開",
+        f"{name} 無資格 病院 派遣",
+    ]
 
     results = []
 
-    for k in keywords:
+    for query in queries:
 
-        links = search_google(k)
+        links = search_google_links(query)
 
         for link in links:
 
-            company = detect_company(link)
+            try:
+                text = extract_page_text(link)
 
-            score = score_match(link, station)
+                if not text:
+                    continue
 
-            results.append({
-                "派遣会社": company,
-                "勤務地": station,
-                "職種": k,
-                "一致度": score,
-                "URL": link
-            })
+                job_features = build_job_features(text)
 
-    if len(results) == 0:
-        results = [{
-            "派遣会社": "該当なし",
-            "勤務地": station,
-            "職種": "派遣求人未検出",
-            "一致度": "-",
-            "URL": ""
-        }]
+                match = build_match_result(
+                    hospital_info,
+                    job_features
+                )
 
-    return results
+                results.append({
+                    "URL": link,
+                    "一致率": match["一致率"],
+                    "判定": match["判定"],
+                    "根拠": " / ".join(match["根拠"]),
+                    "最寄駅": job_features["最寄駅"],
+                    "徒歩": job_features["徒歩分数"],
+                    "地域": job_features["地域"],
+                    "職種": ",".join(job_features["職種キーワード"])
+                })
+
+            except:
+                pass
+
+    results.sort(
+        key=lambda x: x["一致率"],
+        reverse=True
+    )
+
+    return results[:5]
