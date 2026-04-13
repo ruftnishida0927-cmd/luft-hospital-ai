@@ -24,7 +24,8 @@ if st.button("分析開始"):
     time.sleep(1)
 
     # 病院基本情報
-    info = get_hospital_basic_info(hospital)
+    candidates = get_hospital_basic_info(hospital)
+info = candidates[0]
 
     st.subheader("病院基本情報")
 
