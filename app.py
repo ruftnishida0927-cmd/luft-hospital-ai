@@ -23,7 +23,7 @@ if st.button("分析開始"):
     st.write("分析中...")
     time.sleep(1)
 
-        # 病院基本情報
+    # 病院基本情報
     candidates = get_hospital_basic_info(hospital)
 
     best_info = None
@@ -95,7 +95,7 @@ if st.button("分析開始"):
     for a in acquired:
         st.write("・", a)
 
-        # 派遣求人調査
+    # 派遣求人調査
     st.subheader("派遣求人調査")
 
     for c in dispatch_candidates:
