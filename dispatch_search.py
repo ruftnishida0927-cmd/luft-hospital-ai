@@ -4,53 +4,104 @@ from bs4 import BeautifulSoup
 from station_search import get_station
 
 
+def detect_company(url):
+
+    if "indeed" in url:
+        return "Indeed"
+
+    if "staffservice" in url:
+        return "スタッフサービス"
+
+    if "manpower" in url:
+        return "マンパワー"
+
+    if "job-medley" in url:
+        return "ジョブメドレー"
+
+    if "mc-nurse" in url:
+        return "メディカルコンシェルジュ"
+
+    return "その他"
+
+
+def build_keywords(station):
+
+    return [
+        f"{station} 看護助手 派遣",
+        f"{station} 医療事務 派遣",
+        f"{station} 病院 派遣",
+        f"{station} 看護補助 派遣",
+    ]
+
+
+def search_google(query):
+
+    url = "https://www.google.com/search?q=" + query
+
+    try:
+        r = requests.get(
+            url,
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=5
+        )
+
+        soup = BeautifulSoup(r.text, "html.parser")
+
+        links = []
+
+        for a in soup.select("a"):
+            href = a.get("href")
+
+            if href and "http" in href:
+                links.append(href)
+
+        return links[:10]
+
+    except:
+        return []
+
+
+def score_match(url, station):
+
+    score = 50
+
+    if station in url:
+        score += 20
+
+    if "看護" in url:
+        score += 10
+
+    if "派遣" in url:
+        score += 10
+
+    return f"{score}%"
+
+
 def search_dispatch_jobs(hospital):
 
     station = get_station(hospital)
 
-    keywords = [
-        "看護助手 派遣",
-        "医療事務 派遣",
-        "病院 派遣",
-        "看護補助 派遣"
-    ]
-
-    base = "https://www.google.com/search?q="
+    keywords = build_keywords(station)
 
     results = []
 
     for k in keywords:
 
-        query = f"{station} {k}"
-        url = base + query
+        links = search_google(k)
 
-        try:
-            r = requests.get(
-                url,
-                headers={"User-Agent": "Mozilla/5.0"},
-                timeout=5
-            )
+        for link in links:
 
-            soup = BeautifulSoup(r.text, "html.parser")
+            company = detect_company(link)
 
-            links = soup.select("a")
+            score = score_match(link, station)
 
-            for l in links[:10]:
-
-                href = l.get("href")
-
-                if href and "http" in href:
-
-                    results.append({
-                        "派遣会社": "検索候補",
-                        "勤務地": station,
-                        "職種": k,
-                        "一致度": "候補",
-                        "URL": href
-                    })
-
-        except:
-            pass
+            results.append({
+                "派遣会社": company,
+                "勤務地": station,
+                "職種": k,
+                "一致度": score,
+                "URL": link
+            })
 
     if len(results) == 0:
         results = [{
