@@ -67,10 +67,10 @@ if st.button("分析開始"):
     for a in acquired:
         st.write("・", a)
 
-    # 派遣求人調査（新規）
+    # 派遣求人調査
     st.subheader("派遣求人調査")
 
-   dispatch_candidates = search_dispatch_jobs(hospital)
+    dispatch_candidates = search_dispatch_jobs(hospital)
 
     for c in dispatch_candidates:
         st.write("-------------")
