@@ -17,7 +17,6 @@ def search_dispatch_jobs(hospital):
 
     sites = [
         "https://www.google.com/search?q=",
-        "https://www.indeed.com/jobs?q=",
     ]
 
     results = []
@@ -31,10 +30,7 @@ def search_dispatch_jobs(hospital):
             try:
                 r = requests.get(
                     url,
-                    headers={
-                        "User-Agent":
-                        "Mozilla/5.0"
-                    },
+                    headers={"User-Agent": "Mozilla/5.0"},
                     timeout=5
                 )
 
@@ -42,10 +38,10 @@ def search_dispatch_jobs(hospital):
 
                 titles = soup.find_all("h3")
 
-                for t in titles[:3]:
+                for t in titles[:5]:
 
                     results.append({
-                        "派遣会社": "検索結果",
+                        "派遣会社": "検索候補",
                         "勤務地": station,
                         "職種": k,
                         "一致度": "候補"
@@ -53,6 +49,22 @@ def search_dispatch_jobs(hospital):
 
             except:
                 pass
+
+    # 一致率追加
+    for r in results:
+
+        score = 50
+
+        if "看護" in r["職種"]:
+            score += 10
+
+        if "助手" in r["職種"]:
+            score += 10
+
+        if station != "駅情報取得失敗":
+            score += 20
+
+        r["一致度"] = f"{score}%"
 
     if len(results) == 0:
         results = [{
