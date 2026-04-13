@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 import streamlit as st
 import time
+from hospital_basic import get_hospital_basic_info
+
 
 st.set_page_config(page_title="ルフト病院分析AI", layout="centered")
 
@@ -17,6 +19,19 @@ if st.button("分析開始"):
     st.write("分析中...")
     time.sleep(1)
 
+info = get_hospital_basic_info(hospital)
+
+st.subheader("病院基本情報")
+
+st.write("病院名:", info["病院名"])
+st.write("病床数:", info["病床数"])
+st.write("病院種別:", info["病院種別"])
+st.write("地域:", info["地域"])
+st.write("急性期:", info["急性期"])
+st.write("回復期:", info["回復期"])
+st.write("療養:", info["療養"])
+st.write("診療科:", " / ".join(info["診療科"]))
+    
     st.subheader("取得施設基準")
 
     acquired = [
