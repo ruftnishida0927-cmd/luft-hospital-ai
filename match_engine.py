@@ -35,7 +35,10 @@ def _score_beds(hospital_info: dict, job_features: dict):
     hospital_beds = hospital_info.get("病床数")
     job_beds = job_features.get("病床数")
 
-    if not isinstance(hospital_beds, int) or not isinstance(job_beds, int):
+    try:
+        hospital_beds = int(hospital_beds)
+        job_beds = int(job_beds)
+    except:
         return 0, None
 
     diff = abs(hospital_beds - job_beds)
@@ -48,7 +51,6 @@ def _score_beds(hospital_info: dict, job_features: dict):
         return 6, f"病床数がやや近い: {hospital_beds}床 / {job_beds}床"
 
     return 0, None
-
 
 def _score_walk(job_features: dict):
     walk = job_features.get("徒歩分数")
