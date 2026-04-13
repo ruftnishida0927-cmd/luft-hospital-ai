@@ -14,33 +14,72 @@ def fetch(url):
         return None
 
 
-# =========================
-# 厚労省 医療情報提供システム
-# =========================
+def parse_text(text, info):
 
-def search_mhlw(name, info):
+    # 病床数
+    if info["病床数"] == "不明":
+        for line in text.split("\n"):
+            if "病床" in line and "床" in line:
+                if len(line.strip()) < 40:
+                    info["病床数"] = line.strip()
+                    break
 
-    url = "https://www.iryou.teikyouseido.mhlw.go.jp/znk-web/juminkanja/S2300/initialize"
+    # 地域
+    for pref in [
+        "北海道","青森県","岩手県","宮城県","秋田県","山形県","福島県",
+        "茨城県","栃木県","群馬県","埼玉県","千葉県","東京都","神奈川県",
+        "新潟県","富山県","石川県","福井県","山梨県","長野県",
+        "岐阜県","静岡県","愛知県","三重県",
+        "滋賀県","京都府","大阪府","兵庫県","奈良県","和歌山県",
+        "鳥取県","島根県","岡山県","広島県","山口県",
+        "徳島県","香川県","愛媛県","高知県",
+        "福岡県","佐賀県","長崎県","熊本県","大分県","宮崎県","鹿児島県","沖縄県"
+    ]:
+        if pref in text:
+            info["地域"] = pref
+
+    # 診療科
+    departments = [
+        "内科","外科","整形外科","小児科",
+        "皮膚科","泌尿器科","眼科",
+        "耳鼻咽喉科","精神科","心療内科",
+        "リハビリテーション科","脳神経外科",
+        "循環器内科","消化器内科","呼吸器内科"
+    ]
+
+    for d in departments:
+        if d in text and d not in info["診療科"]:
+            info["診療科"].append(d)
+
+    if "急性期" in text:
+        info["急性期"] = True
+
+    if "回復期" in text:
+        info["回復期"] = True
+
+    if "療養" in text:
+        info["療養"] = True
+
+    return info
+
+
+def search_query(query, info):
+
+    url = f"https://www.google.com/search?q={query}"
 
     r = fetch(url)
 
     if not r:
         return info
 
-    # 実際は検索API呼び出しになるが
-    # まずはページ取得ベース
+    soup = BeautifulSoup(r.text, "html.parser")
 
-    text = r.text
+    text = soup.get_text()
 
-    if name in text:
-        info["病院種別"] = "取得成功"
+    info = parse_text(text, info)
 
     return info
 
-
-# =========================
-# Wikipedia
-# =========================
 
 def search_wikipedia(name, info):
 
@@ -57,106 +96,6 @@ def search_wikipedia(name, info):
     return info
 
 
-# =========================
-# Google
-# =========================
-
-def search_google(name, info):
-
-    url = f"https://www.google.com/search?q={name}+病院"
-
-    r = fetch(url)
-
-    if r:
-        soup = BeautifulSoup(r.text, "html.parser")
-        text = soup.get_text()
-
-        info = parse_text(text, info)
-
-    return info
-
-
-# =========================
-# 病院HP
-# =========================
-
-def search_homepage(name, info):
-
-    url = f"https://www.google.com/search?q={name}"
-
-    r = fetch(url)
-
-    if not r:
-        return info
-
-    soup = BeautifulSoup(r.text, "html.parser")
-
-    for a in soup.select("a"):
-
-        href = a.get("href")
-
-        if not href:
-            continue
-
-        if "http" not in href:
-            continue
-
-        if "google" in href:
-            continue
-
-        try:
-            r2 = fetch(href)
-
-            if r2:
-                soup2 = BeautifulSoup(r2.text, "html.parser")
-                text = soup2.get_text()
-
-                info = parse_text(text, info)
-
-                break
-
-        except:
-            pass
-
-    return info
-
-
-# =========================
-# テキスト解析
-# =========================
-
-def parse_text(text, info):
-
-    # 病床数
-    if info["病床数"] == "不明":
-        for line in text.split("\n"):
-            if "床" in line and "病床" in line:
-                info["病床数"] = line.strip()
-                break
-
-    # 地域
-    for pref in ["京都府","大阪府","兵庫県","滋賀県","奈良県"]:
-        if pref in text:
-            info["地域"] = pref
-
-    # 診療科
-    departments = [
-        "内科","外科","整形外科","小児科",
-        "皮膚科","泌尿器科","眼科",
-        "耳鼻咽喉科","精神科","心療内科"
-    ]
-
-    for d in departments:
-        if d in text and d not in info["診療科"]:
-            info["診療科"].append(d)
-
-    return info
-
-
-# =========================
-# メイン
-# =========================
-
 def get_hospital_basic_info(name):
 
     info = {
@@ -170,17 +109,20 @@ def get_hospital_basic_info(name):
         "診療科": []
     }
 
-    # ① 厚労省
-    info = search_mhlw(name, info)
+    # ① 医療情報提供制度
+    info = search_query(f"{name} 医療情報提供制度", info)
 
-    # ② Wikipedia
+    # ② 病床数
+    info = search_query(f"{name} 病床数", info)
+
+    # ③ 病院概要
+    info = search_query(f"{name} 病院 概要", info)
+
+    # ④ Wikipedia
     info = search_wikipedia(name, info)
 
-    # ③ 病院HP
-    info = search_homepage(name, info)
-
-    # ④ Google
-    info = search_google(name, info)
+    # ⑤ 一般検索
+    info = search_query(f"{name} 病院", info)
 
     if len(info["診療科"]) == 0:
         info["診療科"] = ["調査中"]
