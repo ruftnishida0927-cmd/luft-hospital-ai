@@ -23,7 +23,9 @@ if st.button("分析開始"):
     st.write("分析中...")
     time.sleep(1)
 
-    # 病院基本情報（候補複数取得）
+    # -----------------------------
+    # 病院候補取得
+    # -----------------------------
     candidates = get_hospital_basic_info(hospital)
 
     best_info = None
@@ -39,7 +41,7 @@ if st.button("分析開始"):
 
         top = dispatch_candidates[0]
 
-        score = int(str(top["一致率"]).replace("%",""))
+        score = int(str(top["一致率"]).replace("%", ""))
 
         if score > best_score:
             best_score = score
@@ -53,21 +55,25 @@ if st.button("分析開始"):
     info = best_info
     dispatch_candidates = best_dispatch
 
-# 候補病院表示
-st.subheader("候補病院")
+    # -----------------------------
+    # 候補病院表示
+    # -----------------------------
+    st.subheader("候補病院")
 
-for cand in candidates:
-    st.write("-------------")
+    for cand in candidates:
+        st.write("-------------")
 
-    if cand == info:
-        st.write("★採用候補")
+        if cand == info:
+            st.write("★採用候補")
 
-    st.write("病院名:", cand["病院名"])
-    st.write("地域:", cand["地域"])
-    st.write("最寄駅:", cand["最寄駅"])
-    st.write("病床数:", cand["病床数"])
+        st.write("病院名:", cand["病院名"])
+        st.write("地域:", cand["地域"])
+        st.write("最寄駅:", cand["最寄駅"])
+        st.write("病床数:", cand["病床数"])
 
-    # 病院基本情報表示
+    # -----------------------------
+    # 病院基本情報
+    # -----------------------------
     st.subheader("病院基本情報")
 
     st.write("病院名:", info["病院名"])
@@ -79,7 +85,9 @@ for cand in candidates:
     st.write("療養:", info["療養"])
     st.write("診療科:", " / ".join(info["診療科"]))
 
+    # -----------------------------
     # 看護配置
+    # -----------------------------
     nursing = get_nursing_config(hospital)
 
     st.subheader("看護配置")
@@ -90,7 +98,9 @@ for cand in candidates:
     st.write("夜間補助:", nursing["夜間補助"])
     st.write("看護必要度:", nursing["看護必要度"])
 
+    # -----------------------------
     # 採用窓口
+    # -----------------------------
     contact = get_staff_contact(hospital)
 
     st.subheader("採用窓口")
@@ -101,7 +111,9 @@ for cand in candidates:
     st.write("代表電話:", contact["代表電話"])
     st.write("採用窓口:", contact["採用窓口"])
 
+    # -----------------------------
     # 施設基準
+    # -----------------------------
     st.subheader("取得施設基準")
 
     acquired, missing = get_facility_standard(hospital)
@@ -109,7 +121,9 @@ for cand in candidates:
     for a in acquired:
         st.write("・", a)
 
+    # -----------------------------
     # 派遣求人調査
+    # -----------------------------
     st.subheader("派遣求人調査")
 
     for c in dispatch_candidates:
@@ -125,6 +139,9 @@ for cand in candidates:
 
     st.success("分析完了")
 
+    # -----------------------------
+    # Excel出力
+    # -----------------------------
     file = export_excel(
         hospital,
         info,
