@@ -22,6 +22,7 @@ if st.button("分析開始"):
     st.write("分析中...")
     time.sleep(1)
 
+    # 病院基本情報
     info = get_hospital_basic_info(hospital)
 
     st.subheader("病院基本情報")
@@ -35,6 +36,7 @@ if st.button("分析開始"):
     st.write("療養:", info["療養"])
     st.write("診療科:", " / ".join(info["診療科"]))
 
+    # 看護配置
     nursing = get_nursing_config(hospital)
 
     st.subheader("看護配置")
@@ -45,6 +47,7 @@ if st.button("分析開始"):
     st.write("夜間補助:", nursing["夜間補助"])
     st.write("看護必要度:", nursing["看護必要度"])
 
+    # 採用窓口
     contact = get_staff_contact(hospital)
 
     st.subheader("採用窓口")
@@ -55,6 +58,7 @@ if st.button("分析開始"):
     st.write("代表電話:", contact["代表電話"])
     st.write("採用窓口:", contact["採用窓口"])
 
+    # 施設基準
     st.subheader("取得施設基準")
 
     acquired, missing = get_facility_standard(hospital)
@@ -62,30 +66,33 @@ if st.button("分析開始"):
     for a in acquired:
         st.write("・", a)
 
-    st.subheader("未取得（取得可能）")
+    # 派遣求人調査（新規）
+    st.subheader("派遣求人調査")
 
-    total = 0
+    st.write("派遣会社経由の病院名非公開求人を調査中…")
 
-    for name, point in missing:
-        st.write(f"・{name}　(+{point}点/日)")
-        total += point
+    # 仮候補（後でスクレイピングに変更）
+    dispatch_candidates = [
+        {
+            "派遣会社": "スタッフサービス・メディカル",
+            "勤務地": "京都市東部",
+            "職種": "看護助手",
+            "一致度": "高"
+        },
+        {
+            "派遣会社": "マンパワー",
+            "勤務地": "宇治エリア",
+            "職種": "医療事務",
+            "一致度": "中"
+        }
+    ]
 
-    st.subheader("改善インパクト")
-
-    st.write(f"日次 +{total}点")
-    st.write(f"月間 +{total*30}点")
-    st.write(f"収益目安 +{total*30}円")
-
-    st.subheader("必要人員")
-
-    st.write("・看護補助 +2名")
-    st.write("・医師事務 +1名")
-
-    st.subheader("優先順位")
-
-    st.write("① 医師事務作業補助体制加算")
-    st.write("② 夜間看護補助加算")
-    st.write("③ 急性期看護補助25:1")
+    for c in dispatch_candidates:
+        st.write("-------------")
+        st.write("派遣会社:", c["派遣会社"])
+        st.write("勤務地:", c["勤務地"])
+        st.write("職種:", c["職種"])
+        st.write("一致度:", c["一致度"])
 
     st.success("分析完了")
 
