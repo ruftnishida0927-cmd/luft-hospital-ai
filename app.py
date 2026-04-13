@@ -3,6 +3,7 @@ import streamlit as st
 import time
 from hospital_basic import get_hospital_basic_info
 from facility_standard import get_facility_standard
+from nursing_config import get_nursing_config
 
 st.set_page_config(page_title="ルフト病院分析AI", layout="centered")
 
