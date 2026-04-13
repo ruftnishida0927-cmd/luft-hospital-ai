@@ -68,19 +68,22 @@ if st.button("分析開始"):
         st.write("・", a)
 
     # 派遣求人調査
-    st.subheader("派遣求人調査")
+st.subheader("派遣求人調査")
 
-    dispatch_candidates = search_dispatch_jobs(hospital)
+dispatch_candidates = search_dispatch_jobs(info)
 
-    for c in dispatch_candidates:
-        st.write("-------------")
-        st.write("派遣会社:", c["派遣会社"])
-        st.write("勤務地:", c["勤務地"])
-        st.write("職種:", c["職種"])
-        st.write("一致度:", c["一致度"])
-        st.write("リンク:", c["URL"])
+for c in dispatch_candidates:
+    st.write("-------------")
+    st.write("一致率:", c["一致率"], "%")
+    st.write("判定:", c["判定"])
+    st.write("最寄駅:", c["最寄駅"])
+    st.write("徒歩:", c["徒歩"])
+    st.write("地域:", c["地域"])
+    st.write("職種:", c["職種"])
+    st.write("根拠:", c["根拠"])
+    st.write("URL:", c["URL"])
 
-    st.success("分析完了")
+st.success("分析完了")
 
     file = export_excel(
         hospital,
