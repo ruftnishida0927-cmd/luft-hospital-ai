@@ -5,6 +5,7 @@ from hospital_basic import get_hospital_basic_info
 from facility_standard import get_facility_standard
 from nursing_config import get_nursing_config
 from staff_contact import get_staff_contact
+from excel_export import export_excel
 
 st.set_page_config(page_title="ルフト病院分析AI", layout="centered")
 
@@ -88,3 +89,18 @@ st.write("採用窓口:", contact["採用窓口"])
     st.write("③ 急性期看護補助25:1")
 
     st.success("分析完了")
+
+file = export_excel(
+    hospital,
+    info,
+    nursing,
+    contact,
+    acquired,
+    missing
+)
+
+st.download_button(
+    "Excelダウンロード",
+    open(file, "rb"),
+    file_name=file
+)
