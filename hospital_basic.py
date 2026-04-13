@@ -15,18 +15,20 @@ def fetch(url):
     try:
         return requests.get(
             url,
-            headers={"User-Agent": "Mozilla/5.0"},
-            timeout=8
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                "Accept-Language": "ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+                "Connection": "keep-alive"
+            },
+            timeout=10
         )
     except:
         return None
 
 
-# Wikipedia取得
 def search_wikipedia(name):
-
     url = f"https://ja.wikipedia.org/wiki/{name}"
-
     r = fetch(url)
 
     if not r:
@@ -35,10 +37,9 @@ def search_wikipedia(name):
     return r.text
 
 
-# 公式サイト検索（求人サイト除外）
 def search_official_urls(name):
-
-    url = f"https://www.google.com/search?q={name}+病院+公式"
+    query = f"{name} 病院 公式"
+    url = f"https://www.google.com/search?q={query}&hl=ja&num=10"
 
     r = fetch(url)
 
@@ -50,7 +51,6 @@ def search_official_urls(name):
     urls = []
 
     for a in soup.select("a"):
-
         href = a.get("href")
 
         if not href:
@@ -62,29 +62,33 @@ def search_official_urls(name):
         # 除外
         if "google" in href:
             continue
-
-        if "job" in href:
+        if "youtube" in href:
             continue
-
-        if "求人" in href:
-            continue
-
-        if "townwork" in href:
-            continue
-
         if "indeed" in href:
             continue
-
+        if "townwork" in href:
+            continue
         if "rikunabi" in href:
+            continue
+        if "job-medley" in href:
+            continue
+        if "staffservice" in href:
+            continue
+        if "manpower" in href:
             continue
 
         urls.append(href)
 
-    return urls[:3]
+    # 重複除去
+    deduped = []
+    for u in urls:
+        if u not in deduped:
+            deduped.append(u)
+
+    return deduped[:5]
 
 
 def build_info(text, name):
-
     flags = extract_hospital_type_flags(text)
 
     return {
@@ -101,32 +105,26 @@ def build_info(text, name):
 
 
 def get_hospital_basic_info(name):
-
     candidates = []
 
-    # Wikipedia
+    # ① Wikipedia
     wiki = search_wikipedia(name)
-
     if wiki:
         candidates.append(build_info(wiki, name))
 
-    # 公式サイト
+    # ② 公式サイト候補
     urls = search_official_urls(name)
 
     for url in urls:
-
         r = fetch(url)
 
         if not r:
             continue
 
         text = r.text
-
         candidates.append(build_info(text, name))
 
-    # fallback
     if not candidates:
-
         return [{
             "病院名": name,
             "病床数": "不明",
