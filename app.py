@@ -23,9 +23,35 @@ if st.button("分析開始"):
     st.write("分析中...")
     time.sleep(1)
 
-    # 病院基本情報
+        # 病院基本情報
     candidates = get_hospital_basic_info(hospital)
-info = candidates[0]
+
+    best_info = None
+    best_dispatch = []
+    best_score = -1
+
+    for cand in candidates:
+
+        dispatch_candidates = search_dispatch_jobs(cand)
+
+        if not dispatch_candidates:
+            continue
+
+        top = dispatch_candidates[0]
+
+        score = top["一致率"]
+
+        if score > best_score:
+            best_score = score
+            best_info = cand
+            best_dispatch = dispatch_candidates
+
+    if best_info is None:
+        best_info = candidates[0]
+        best_dispatch = []
+
+    info = best_info
+    dispatch_candidates = best_dispatch
 
     st.subheader("病院基本情報")
 
@@ -37,7 +63,8 @@ info = candidates[0]
     st.write("回復期:", info["回復期"])
     st.write("療養:", info["療養"])
     st.write("診療科:", " / ".join(info["診療科"]))
-
+    
+    
     # 看護配置
     nursing = get_nursing_config(hospital)
 
@@ -68,23 +95,21 @@ info = candidates[0]
     for a in acquired:
         st.write("・", a)
 
-    # 派遣求人調査
-st.subheader("派遣求人調査")
+        # 派遣求人調査
+    st.subheader("派遣求人調査")
 
-dispatch_candidates = search_dispatch_jobs(info)
+    for c in dispatch_candidates:
+        st.write("-------------")
+        st.write("一致率:", c["一致率"], "%")
+        st.write("判定:", c["判定"])
+        st.write("最寄駅:", c["最寄駅"])
+        st.write("徒歩:", c["徒歩"])
+        st.write("地域:", c["地域"])
+        st.write("職種:", c["職種"])
+        st.write("根拠:", c["根拠"])
+        st.write("URL:", c["URL"])
 
-for c in dispatch_candidates:
-    st.write("-------------")
-    st.write("一致率:", c["一致率"], "%")
-    st.write("判定:", c["判定"])
-    st.write("最寄駅:", c["最寄駅"])
-    st.write("徒歩:", c["徒歩"])
-    st.write("地域:", c["地域"])
-    st.write("職種:", c["職種"])
-    st.write("根拠:", c["根拠"])
-    st.write("URL:", c["URL"])
-
-st.success("分析完了")
+    st.success("分析完了")
 
     file = export_excel(
         hospital,
