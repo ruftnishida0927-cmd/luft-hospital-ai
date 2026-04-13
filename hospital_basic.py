@@ -112,4 +112,4 @@ def get_hospital_basic_info(name):
         }
 
     # とりあえず最初返す（後で一致率で選ぶ）
-    return candidates[0]
+    return candidates
