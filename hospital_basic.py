@@ -1,7 +1,14 @@
 # -*- coding: utf-8 -*-
 import requests
 from bs4 import BeautifulSoup
-from hospital_url import get_hospital_url
+
+from extractors import (
+    extract_prefecture,
+    extract_departments,
+    extract_bed_count,
+    extract_station,
+    extract_hospital_type_flags
+)
 
 
 def fetch(url):
@@ -15,72 +22,94 @@ def fetch(url):
         return None
 
 
-def parse_text(text, info):
+def search_official_urls(name):
 
-    # 病床数
-    for line in text.split("\n"):
-        if "床" in line and "病床" in line:
-            if len(line) < 50:
-                info["病床数"] = line.strip()
+    query = f"{name} 病院"
+    url = f"https://www.google.com/search?q={query}"
 
-    # 地域
-    for p in ["京都府","大阪府","兵庫県","滋賀県","奈良県"]:
-        if p in text:
-            info["地域"] = p
+    r = fetch(url)
 
-    # 診療科
-    deps = [
-        "内科","外科","整形外科","小児科",
-        "皮膚科","泌尿器科","眼科",
-        "耳鼻咽喉科","精神科","心療内科",
-        "リハビリテーション科"
-    ]
+    if not r:
+        return []
 
-    for d in deps:
-        if d in text:
-            if d not in info["診療科"]:
-                info["診療科"].append(d)
+    soup = BeautifulSoup(r.text, "html.parser")
 
-    if "急性期" in text:
-        info["急性期"] = True
+    urls = []
 
-    if "回復期" in text:
-        info["回復期"] = True
+    for a in soup.select("a"):
 
-    if "療養" in text:
-        info["療養"] = True
+        href = a.get("href")
 
-    return info
+        if not href:
+            continue
+
+        if "http" not in href:
+            continue
+
+        if "google" in href:
+            continue
+
+        if "map" in href:
+            continue
+
+        urls.append(href)
+
+    return urls[:5]
+
+
+def extract_hospital_info(text, name):
+
+    beds = extract_bed_count(text)
+    station = extract_station(text)
+    region = extract_prefecture(text)
+    deps = extract_departments(text)
+    flags = extract_hospital_type_flags(text)
+
+    return {
+        "病院名": name,
+        "病床数": beds if beds else "不明",
+        "病院種別": "一般病院",
+        "地域": region,
+        "最寄駅": station,
+        "急性期": flags["急性期"],
+        "回復期": flags["回復期"],
+        "療養": flags["療養"],
+        "診療科": deps if deps else ["調査中"]
+    }
 
 
 def get_hospital_basic_info(name):
 
-    info = {
-        "病院名": name,
-        "病床数": "不明",
-        "病院種別": "調査中",
-        "地域": "調査中",
-        "急性期": False,
-        "回復期": False,
-        "療養": False,
-        "診療科": []
-    }
+    urls = search_official_urls(name)
 
-    # ① 公式URL取得
-    url = get_hospital_url(name)
+    candidates = []
 
-    if not url:
-        return info
+    for url in urls:
 
-    # ② 公式HP取得
-    r = fetch(url)
+        r = fetch(url)
 
-    if not r:
-        return info
+        if not r:
+            continue
 
-    soup = BeautifulSoup(r.text, "html.parser")
-    text = soup.get_text()
+        soup = BeautifulSoup(r.text, "html.parser")
+        text = soup.get_text()
 
-    info = parse_text(text, info)
+        info = extract_hospital_info(text, name)
 
-    return info
+        candidates.append(info)
+
+    if not candidates:
+        return {
+            "病院名": name,
+            "病床数": "不明",
+            "病院種別": "調査中",
+            "地域": "不明",
+            "最寄駅": "不明",
+            "急性期": False,
+            "回復期": False,
+            "療養": False,
+            "診療科": ["調査中"]
+        }
+
+    # とりあえず最初返す（後で一致率で選ぶ）
+    return candidates[0]
