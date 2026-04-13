@@ -22,9 +22,23 @@ def fetch(url):
         return None
 
 
+# Wikipedia取得
+def search_wikipedia(name):
+
+    url = f"https://ja.wikipedia.org/wiki/{name}"
+
+    r = fetch(url)
+
+    if not r:
+        return None
+
+    return r.text
+
+
+# 公式サイト検索（求人サイト除外）
 def search_official_urls(name):
 
-    url = f"https://www.google.com/search?q={name}+病院"
+    url = f"https://www.google.com/search?q={name}+病院+公式"
 
     r = fetch(url)
 
@@ -45,7 +59,23 @@ def search_official_urls(name):
         if "http" not in href:
             continue
 
+        # 除外
         if "google" in href:
+            continue
+
+        if "job" in href:
+            continue
+
+        if "求人" in href:
+            continue
+
+        if "townwork" in href:
+            continue
+
+        if "indeed" in href:
+            continue
+
+        if "rikunabi" in href:
             continue
 
         urls.append(href)
@@ -72,9 +102,16 @@ def build_info(text, name):
 
 def get_hospital_basic_info(name):
 
-    urls = search_official_urls(name)
-
     candidates = []
+
+    # Wikipedia
+    wiki = search_wikipedia(name)
+
+    if wiki:
+        candidates.append(build_info(wiki, name))
+
+    # 公式サイト
+    urls = search_official_urls(name)
 
     for url in urls:
 
@@ -83,14 +120,11 @@ def get_hospital_basic_info(name):
         if not r:
             continue
 
-        soup = BeautifulSoup(r.text, "html.parser")
+        text = r.text
 
-        text = soup.get_text()
+        candidates.append(build_info(text, name))
 
-        info = build_info(text, name)
-
-        candidates.append(info)
-
+    # fallback
     if not candidates:
 
         return [{
