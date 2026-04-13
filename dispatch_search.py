@@ -15,63 +15,50 @@ def search_dispatch_jobs(hospital):
         "看護補助 派遣"
     ]
 
-    sites = [
-        "https://www.google.com/search?q=",
-    ]
+    base = "https://www.google.com/search?q="
 
     results = []
 
-    for site in sites:
-        for k in keywords:
+    for k in keywords:
 
-            query = f"{station} {k}"
-            url = site + query
+        query = f"{station} {k}"
+        url = base + query
 
-            try:
-                r = requests.get(
-                    url,
-                    headers={"User-Agent": "Mozilla/5.0"},
-                    timeout=5
-                )
+        try:
+            r = requests.get(
+                url,
+                headers={"User-Agent": "Mozilla/5.0"},
+                timeout=5
+            )
 
-                soup = BeautifulSoup(r.text, "html.parser")
+            soup = BeautifulSoup(r.text, "html.parser")
 
-                titles = soup.find_all("h3")
+            links = soup.select("a")
 
-                for t in titles[:5]:
+            for l in links[:10]:
+
+                href = l.get("href")
+
+                if href and "http" in href:
 
                     results.append({
                         "派遣会社": "検索候補",
                         "勤務地": station,
                         "職種": k,
-                        "一致度": "候補"
+                        "一致度": "候補",
+                        "URL": href
                     })
 
-            except:
-                pass
-
-    # 一致率追加
-    for r in results:
-
-        score = 50
-
-        if "看護" in r["職種"]:
-            score += 10
-
-        if "助手" in r["職種"]:
-            score += 10
-
-        if station != "駅情報取得失敗":
-            score += 20
-
-        r["一致度"] = f"{score}%"
+        except:
+            pass
 
     if len(results) == 0:
         results = [{
             "派遣会社": "該当なし",
             "勤務地": station,
             "職種": "派遣求人未検出",
-            "一致度": "-"
+            "一致度": "-",
+            "URL": ""
         }]
 
     return results
