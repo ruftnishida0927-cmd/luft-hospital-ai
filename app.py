@@ -37,9 +37,9 @@ if st.button("分析開始"):
         if not dispatch_candidates:
             continue
 
-        top = dispatch_candidates[0]
+top = dispatch_candidates[0]
 
-        score = top["一致率"]
+score = int(str(top["一致率"]).replace("%",""))
 
         if score > best_score:
             best_score = score
