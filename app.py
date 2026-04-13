@@ -32,7 +32,7 @@ if st.button("分析開始"):
     best_dispatch = []
     best_score = -1
 
-    for cand in candidates:
+    for cand in candidates[:2]:
 
         dispatch_candidates = search_dispatch_jobs(cand)
 
