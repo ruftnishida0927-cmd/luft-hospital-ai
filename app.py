@@ -2,7 +2,7 @@
 import streamlit as st
 import time
 from hospital_basic import get_hospital_basic_info
-
+from facility_standard import get_facility_standard
 
 st.set_page_config(page_title="ルフト病院分析AI", layout="centered")
 
@@ -34,22 +34,12 @@ st.write("診療科:", " / ".join(info["診療科"]))
     
     st.subheader("取得施設基準")
 
-    acquired = [
-        "急性期一般入院料4",
-        "看護補助体制加算",
-        "医師事務作業補助体制加算"
-    ]
+    acquired, missing = get_facility_standard(hospital)
 
     for a in acquired:
         st.write("・", a)
 
     st.subheader("未取得（取得可能）")
-
-    missing = [
-        ("急性期看護補助体制加算25:1", 420),
-        ("夜間看護補助加算", 160),
-        ("医師事務作業補助体制加算50:1", 300)
-    ]
 
     total = 0
 
