@@ -32,7 +32,17 @@ st.write("急性期:", info["急性期"])
 st.write("回復期:", info["回復期"])
 st.write("療養:", info["療養"])
 st.write("診療科:", " / ".join(info["診療科"]))
-    
+
+nursing = get_nursing_config(hospital)
+
+st.subheader("看護配置")
+
+st.write("入院基本料:", nursing["入院基本料"])
+st.write("看護配置:", nursing["看護配置"])
+st.write("看護補助:", nursing["看護補助"])
+st.write("夜間補助:", nursing["夜間補助"])
+st.write("看護必要度:", nursing["看護必要度"])
+
     st.subheader("取得施設基準")
 
     acquired, missing = get_facility_standard(hospital)
