@@ -56,7 +56,7 @@ st.write("代表電話:", contact["代表電話"])
 st.write("採用窓口:", contact["採用窓口"])
 
 
-    st.subheader("取得施設基準")
+st.subheader("取得施設基準")
 
     acquired, missing = get_facility_standard(hospital)
 
