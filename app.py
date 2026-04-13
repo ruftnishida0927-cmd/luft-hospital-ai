@@ -58,6 +58,10 @@ st.subheader("候補病院")
 
 for cand in candidates:
     st.write("-------------")
+
+    if cand == info:
+        st.write("★採用候補")
+
     st.write("病院名:", cand["病院名"])
     st.write("地域:", cand["地域"])
     st.write("最寄駅:", cand["最寄駅"])
