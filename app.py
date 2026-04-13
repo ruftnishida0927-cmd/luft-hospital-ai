@@ -4,6 +4,7 @@ import time
 from hospital_basic import get_hospital_basic_info
 from facility_standard import get_facility_standard
 from nursing_config import get_nursing_config
+from staff_contact import get_staff_contact
 
 st.set_page_config(page_title="ルフト病院分析AI", layout="centered")
 
@@ -42,6 +43,17 @@ st.write("看護配置:", nursing["看護配置"])
 st.write("看護補助:", nursing["看護補助"])
 st.write("夜間補助:", nursing["夜間補助"])
 st.write("看護必要度:", nursing["看護必要度"])
+
+contact = get_staff_contact(hospital)
+
+st.subheader("採用窓口")
+
+st.write("看護部長:", contact["看護部長"])
+st.write("事務長:", contact["事務長"])
+st.write("人事担当:", contact["人事担当"])
+st.write("代表電話:", contact["代表電話"])
+st.write("採用窓口:", contact["採用窓口"])
+
 
     st.subheader("取得施設基準")
 
