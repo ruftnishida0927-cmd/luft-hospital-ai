@@ -16,7 +16,7 @@ def fetch(url):
         return requests.get(
             url,
             headers={"User-Agent": "Mozilla/5.0"},
-            timeout=10
+            timeout=8
         )
     except:
         return None
@@ -24,8 +24,7 @@ def fetch(url):
 
 def search_official_urls(name):
 
-    query = f"{name} 病院"
-    url = f"https://www.google.com/search?q={query}"
+    url = f"https://www.google.com/search?q={name}+病院"
 
     r = fetch(url)
 
@@ -49,32 +48,25 @@ def search_official_urls(name):
         if "google" in href:
             continue
 
-        if "map" in href:
-            continue
-
         urls.append(href)
 
-    return urls[:5]
+    return urls[:3]
 
 
-def extract_hospital_info(text, name):
+def build_info(text, name):
 
-    beds = extract_bed_count(text)
-    station = extract_station(text)
-    region = extract_prefecture(text)
-    deps = extract_departments(text)
     flags = extract_hospital_type_flags(text)
 
     return {
         "病院名": name,
-        "病床数": beds if beds else "不明",
+        "病床数": extract_bed_count(text) or "不明",
         "病院種別": "一般病院",
-        "地域": region,
-        "最寄駅": station,
+        "地域": extract_prefecture(text),
+        "最寄駅": extract_station(text),
         "急性期": flags["急性期"],
         "回復期": flags["回復期"],
         "療養": flags["療養"],
-        "診療科": deps if deps else ["調査中"]
+        "診療科": extract_departments(text) or ["調査中"]
     }
 
 
@@ -92,24 +84,25 @@ def get_hospital_basic_info(name):
             continue
 
         soup = BeautifulSoup(r.text, "html.parser")
+
         text = soup.get_text()
 
-        info = extract_hospital_info(text, name)
+        info = build_info(text, name)
 
         candidates.append(info)
 
     if not candidates:
-        return {
+
+        return [{
             "病院名": name,
             "病床数": "不明",
-            "病院種別": "調査中",
+            "病院種別": "不明",
             "地域": "不明",
             "最寄駅": "不明",
             "急性期": False,
             "回復期": False,
             "療養": False,
             "診療科": ["調査中"]
-        }
+        }]
 
-    # とりあえず最初返す（後で一致率で選ぶ）
     return candidates
