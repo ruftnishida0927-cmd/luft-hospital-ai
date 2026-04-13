@@ -23,7 +23,7 @@ if st.button("分析開始"):
     st.write("分析中...")
     time.sleep(1)
 
-    # 病院基本情報
+    # 病院基本情報（候補複数取得）
     candidates = get_hospital_basic_info(hospital)
 
     best_info = None
@@ -37,9 +37,9 @@ if st.button("分析開始"):
         if not dispatch_candidates:
             continue
 
-top = dispatch_candidates[0]
+        top = dispatch_candidates[0]
 
-score = int(str(top["一致率"]).replace("%",""))
+        score = int(str(top["一致率"]).replace("%",""))
 
         if score > best_score:
             best_score = score
@@ -53,6 +53,7 @@ score = int(str(top["一致率"]).replace("%",""))
     info = best_info
     dispatch_candidates = best_dispatch
 
+    # 病院基本情報表示
     st.subheader("病院基本情報")
 
     st.write("病院名:", info["病院名"])
@@ -63,8 +64,7 @@ score = int(str(top["一致率"]).replace("%",""))
     st.write("回復期:", info["回復期"])
     st.write("療養:", info["療養"])
     st.write("診療科:", " / ".join(info["診療科"]))
-    
-    
+
     # 看護配置
     nursing = get_nursing_config(hospital)
 
