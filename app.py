@@ -22,41 +22,40 @@ if st.button("分析開始"):
     st.write("分析中...")
     time.sleep(1)
 
-info = get_hospital_basic_info(hospital)
+    info = get_hospital_basic_info(hospital)
 
-st.subheader("病院基本情報")
+    st.subheader("病院基本情報")
 
-st.write("病院名:", info["病院名"])
-st.write("病床数:", info["病床数"])
-st.write("病院種別:", info["病院種別"])
-st.write("地域:", info["地域"])
-st.write("急性期:", info["急性期"])
-st.write("回復期:", info["回復期"])
-st.write("療養:", info["療養"])
-st.write("診療科:", " / ".join(info["診療科"]))
+    st.write("病院名:", info["病院名"])
+    st.write("病床数:", info["病床数"])
+    st.write("病院種別:", info["病院種別"])
+    st.write("地域:", info["地域"])
+    st.write("急性期:", info["急性期"])
+    st.write("回復期:", info["回復期"])
+    st.write("療養:", info["療養"])
+    st.write("診療科:", " / ".join(info["診療科"]))
 
-nursing = get_nursing_config(hospital)
+    nursing = get_nursing_config(hospital)
 
-st.subheader("看護配置")
+    st.subheader("看護配置")
 
-st.write("入院基本料:", nursing["入院基本料"])
-st.write("看護配置:", nursing["看護配置"])
-st.write("看護補助:", nursing["看護補助"])
-st.write("夜間補助:", nursing["夜間補助"])
-st.write("看護必要度:", nursing["看護必要度"])
+    st.write("入院基本料:", nursing["入院基本料"])
+    st.write("看護配置:", nursing["看護配置"])
+    st.write("看護補助:", nursing["看護補助"])
+    st.write("夜間補助:", nursing["夜間補助"])
+    st.write("看護必要度:", nursing["看護必要度"])
 
-contact = get_staff_contact(hospital)
+    contact = get_staff_contact(hospital)
 
-st.subheader("採用窓口")
+    st.subheader("採用窓口")
 
-st.write("看護部長:", contact["看護部長"])
-st.write("事務長:", contact["事務長"])
-st.write("人事担当:", contact["人事担当"])
-st.write("代表電話:", contact["代表電話"])
-st.write("採用窓口:", contact["採用窓口"])
+    st.write("看護部長:", contact["看護部長"])
+    st.write("事務長:", contact["事務長"])
+    st.write("人事担当:", contact["人事担当"])
+    st.write("代表電話:", contact["代表電話"])
+    st.write("採用窓口:", contact["採用窓口"])
 
-
-st.subheader("取得施設基準")
+    st.subheader("取得施設基準")
 
     acquired, missing = get_facility_standard(hospital)
 
@@ -90,17 +89,17 @@ st.subheader("取得施設基準")
 
     st.success("分析完了")
 
-file = export_excel(
-    hospital,
-    info,
-    nursing,
-    contact,
-    acquired,
-    missing
-)
+    file = export_excel(
+        hospital,
+        info,
+        nursing,
+        contact,
+        acquired,
+        missing
+    )
 
-st.download_button(
-    "Excelダウンロード",
-    open(file, "rb"),
-    file_name=file
-)
+    st.download_button(
+        "Excelダウンロード",
+        open(file, "rb"),
+        file_name=file
+    )
