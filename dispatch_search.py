@@ -47,7 +47,7 @@ def search_google_links(query):
 
         links.append(href)
 
-    return links[:5]
+    return links[:2]
 
 
 def extract_page_text(url):
@@ -114,4 +114,4 @@ def search_dispatch_jobs(hospital_info):
         reverse=True
     )
 
-    return results[:5]
+    return results[:2]
