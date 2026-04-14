@@ -1,79 +1,63 @@
 # -*- coding: utf-8 -*-
-import requests
-from bs4 import BeautifulSoup
 
-from extractors import (
-    extract_prefecture,
-    extract_departments,
-    extract_bed_count,
-    extract_station,
-    extract_hospital_type_flags
+from source_hospital import (
+    search_google,
+    search_wikipedia,
+    search_mhlw
 )
 
 
-def search_mhlw(name):
+def score_candidate(c):
 
-    url = "https://www.iryou.teikyouseido.mhlw.go.jp/znk-web/juminkanja/S2300/initialize"
+    score = 0
 
-    try:
-        r = requests.get(url, timeout=10)
-    except:
-        return []
+    if c["地域"] != "不明":
+        score += 40
 
-    # 厚労省はPOST検索
-    search_url = "https://www.iryou.teikyouseido.mhlw.go.jp/znk-web/juminkanja/S2300/"
+    if c["最寄駅"] != "不明":
+        score += 20
 
-    data = {
-        "kikancd": "",
-        "kikannm": name
+    if c["病床数"]:
+        score += 10
+
+    return score
+
+
+def merge_candidates(name, candidates):
+
+    best = None
+    best_score = -1
+
+    for c in candidates:
+
+        score = score_candidate(c)
+
+        if score > best_score:
+            best = c
+            best_score = score
+
+    return {
+        "病院名": name,
+        "病院種別": "一般病院",
+        "住所": best["住所"],
+        "地域": best["地域"],
+        "最寄駅": best["最寄駅"],
+        "病床数": best["病床数"] or "不明",
+        "急性期": False,
+        "回復期": False,
+        "療養": False,
+        "診療科": ["調査中"],
+        "URL": best["source"]
     }
-
-    try:
-        r = requests.post(search_url, data=data, timeout=10)
-    except:
-        return []
-
-    soup = BeautifulSoup(r.text, "html.parser")
-
-    results = []
-
-    for tr in soup.select("tr"):
-
-        text = tr.get_text()
-
-        if name not in text:
-            continue
-
-        results.append(text)
-
-    return results
 
 
 def get_hospital_basic_info(name):
 
-    results = search_mhlw(name)
-
     candidates = []
 
-    for text in results:
-
-        pref = extract_prefecture(text)
-
-        info = {
-            "病院名": name,
-            "病院種別": "一般病院",
-            "住所": text,
-            "地域": pref,
-            "最寄駅": extract_station(text),
-            "病床数": extract_bed_count(text) or "不明",
-            "急性期": False,
-            "回復期": False,
-            "療養": False,
-            "診療科": ["調査中"],
-            "URL": "厚労省"
-        }
-
-        candidates.append(info)
+    candidates += search_google(name)
+    candidates += search_wikipedia(name)
+    candidates += search_mhlw(name)
 
     if not candidates:
 
@@ -91,4 +75,6 @@ def get_hospital_basic_info(name):
             "URL": ""
         }]
 
-    return candidates
+    best = merge_candidates(name, candidates)
+
+    return [best]
