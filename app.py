@@ -3,7 +3,7 @@ import streamlit as st
 import time
 
 from hospital_basic import get_hospital_basic_info_debug
-from facility_standard import get_facility_standard
+from facility_standard import get_facility_standard, get_facility_standard_debug
 from nursing_config import get_nursing_config
 from staff_contact import get_staff_contact
 from excel_export import export_excel
@@ -25,15 +25,17 @@ if st.button("分析開始"):
     st.write("分析中...")
     time.sleep(1)
 
+    # ==============================
+    # 病院候補取得
+    # ==============================
     candidates, debug = get_hospital_basic_info_debug(hospital, area)
     info = candidates[0]
 
     # ==============================
-    # デバッグ情報（必要時のみ）
+    # 病院検索デバッグ
     # ==============================
     if debug_mode:
         st.subheader("病院検索デバッグ")
-
         st.write("入力病院名:", debug["input_name"])
         st.write("入力エリア:", debug["input_area"])
         st.write("検索結果件数:", debug["search_results_count"])
@@ -76,11 +78,17 @@ if st.button("分析開始"):
 
         st.write("スコア:", cand.get("スコア", 0))
         st.write("取得元:", cand.get("取得元", ""))
+
+        source_list = cand.get("取得元一覧", [])
+        if source_list:
+            st.write("取得元一覧:", " / ".join(source_list))
+
         st.write("病院名:", cand.get("病院名", ""))
         st.write("住所:", cand.get("住所", ""))
         st.write("地域:", cand.get("地域", ""))
         st.write("最寄駅:", cand.get("最寄駅", ""))
         st.write("病床数:", cand.get("病床数", ""))
+        st.write("診療科:", " / ".join(cand.get("診療科", [])))
         st.write("URL:", cand.get("URL", ""))
 
     # ==============================
@@ -100,6 +108,9 @@ if st.button("分析開始"):
     st.write("取得元:", info.get("取得元", ""))
     st.write("URL:", info.get("URL", ""))
 
+    # ==============================
+    # 病院特定チェック
+    # ==============================
     if info.get("スコア", 0) < 70:
         st.error("病院特定の精度が低いため、後続処理を停止しました。候補病院を確認してください。")
         st.stop()
@@ -111,6 +122,39 @@ if st.button("分析開始"):
     if info.get("住所", "") == "":
         st.error("住所が特定できていないため、後続処理を停止しました。")
         st.stop()
+
+    # ==============================
+    # 施設基準
+    # ==============================
+    if debug_mode:
+        acquired, missing, facility_debug = get_facility_standard_debug(
+            hospital,
+            area,
+            info
+        )
+    else:
+        acquired, missing = get_facility_standard(
+            hospital,
+            area,
+            info
+        )
+        facility_debug = None
+
+    st.subheader("取得施設基準")
+    for a in acquired:
+        st.write("・", a)
+
+    if debug_mode and facility_debug is not None:
+        st.subheader("施設基準検索デバッグ")
+        st.write("候補URL件数:", facility_debug["candidate_url_count"])
+
+        for d in facility_debug["page_details"]:
+            st.write("-------------")
+            st.write("title:", d.get("title", ""))
+            st.write("url:", d.get("url", ""))
+            st.write("fetched:", d.get("fetched", False))
+            st.write("text_len:", d.get("text_len", 0))
+            st.write("抽出施設基準:", " / ".join(d.get("acquired", [])))
 
     # ==============================
     # 看護配置
@@ -135,15 +179,6 @@ if st.button("分析開始"):
     st.write("人事担当:", contact["人事担当"])
     st.write("代表電話:", contact["代表電話"])
     st.write("採用窓口:", contact["採用窓口"])
-
-    # ==============================
-    # 施設基準
-    # ==============================
-    st.subheader("取得施設基準")
-    acquired, missing = get_facility_standard(hospital)
-
-    for a in acquired:
-        st.write("・", a)
 
     st.success("分析完了")
 
