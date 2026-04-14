@@ -2,7 +2,7 @@
 import streamlit as st
 import time
 
-from hospital_basic import get_hospital_basic_info
+from hospital_basic import get_hospital_basic_info_debug
 from facility_standard import get_facility_standard
 from nursing_config import get_nursing_config
 from staff_contact import get_staff_contact
@@ -24,15 +24,39 @@ if st.button("分析開始"):
     st.write("分析中...")
     time.sleep(1)
 
-    # ==============================
-    # 病院候補取得
-    # ==============================
-    candidates = get_hospital_basic_info(hospital, area)
+    candidates, debug = get_hospital_basic_info_debug(hospital, area)
     info = candidates[0]
 
-    # ==============================
-    # 候補病院表示
-    # ==============================
+    st.subheader("病院検索デバッグ")
+
+    st.write("入力病院名:", debug["input_name"])
+    st.write("入力エリア:", debug["input_area"])
+    st.write("検索結果件数:", debug["search_results_count"])
+    st.write("候補URL件数:", debug["candidate_source_count"])
+    st.write("本文取得成功件数:", debug["page_fetch_success_count"])
+    st.write("有効候補件数:", debug["valid_candidate_count"])
+
+    st.subheader("候補URL一覧")
+    for item in debug["candidate_sources"]:
+        st.write("-------------")
+        st.write("title:", item.get("title", ""))
+        st.write("source:", item.get("source", ""))
+        st.write("url:", item.get("url", ""))
+
+    st.subheader("ページ解析結果")
+    for d in debug["page_details"]:
+        st.write("-------------")
+        st.write("title:", d.get("title", ""))
+        st.write("source:", d.get("source", ""))
+        st.write("url:", d.get("url", ""))
+        st.write("fetched:", d.get("fetched", False))
+        st.write("text_len:", d.get("text_len", 0))
+        st.write("住所:", d.get("住所", ""))
+        st.write("地域:", d.get("地域", "不明"))
+        st.write("最寄駅:", d.get("最寄駅", "不明"))
+        st.write("病床数:", d.get("病床数", "不明"))
+        st.write("valid:", d.get("valid", False))
+
     st.subheader("候補病院")
     st.write("候補数:", len(candidates))
 
@@ -44,24 +68,14 @@ if st.button("分析開始"):
 
         st.write("スコア:", cand.get("スコア", 0))
         st.write("取得元:", cand.get("取得元", ""))
-
-        source_list = cand.get("取得元一覧", [])
-        if source_list:
-            st.write("取得元一覧:", " / ".join(source_list))
-
         st.write("病院名:", cand.get("病院名", ""))
         st.write("住所:", cand.get("住所", ""))
         st.write("地域:", cand.get("地域", ""))
         st.write("最寄駅:", cand.get("最寄駅", ""))
         st.write("病床数:", cand.get("病床数", ""))
-        st.write("診療科:", " / ".join(cand.get("診療科", [])))
         st.write("URL:", cand.get("URL", ""))
 
-    # ==============================
-    # 病院基本情報
-    # ==============================
     st.subheader("病院基本情報")
-
     st.write("病院名:", info.get("病院名", ""))
     st.write("病院種別:", info.get("病院種別", ""))
     st.write("住所:", info.get("住所", ""))
@@ -75,11 +89,8 @@ if st.button("分析開始"):
     st.write("取得元:", info.get("取得元", ""))
     st.write("URL:", info.get("URL", ""))
 
-    # ==============================
-    # 病院特定チェック
-    # ==============================
     if info.get("スコア", 0) < 70:
-        st.error("病院特定の精度が低いため、後続処理を停止しました。候補病院を確認してください。")
+        st.error("病院特定の精度が低いため、後続処理を停止しました。候補病院とデバッグ情報を確認してください。")
         st.stop()
 
     if info.get("地域", "不明") == "不明":
@@ -90,9 +101,6 @@ if st.button("分析開始"):
         st.error("住所が特定できていないため、後続処理を停止しました。")
         st.stop()
 
-    # ==============================
-    # 看護配置
-    # ==============================
     nursing = get_nursing_config(hospital)
 
     st.subheader("看護配置")
@@ -102,9 +110,6 @@ if st.button("分析開始"):
     st.write("夜間補助:", nursing["夜間補助"])
     st.write("看護必要度:", nursing["看護必要度"])
 
-    # ==============================
-    # 採用窓口
-    # ==============================
     contact = get_staff_contact(hospital)
 
     st.subheader("採用窓口")
@@ -114,9 +119,6 @@ if st.button("分析開始"):
     st.write("代表電話:", contact["代表電話"])
     st.write("採用窓口:", contact["採用窓口"])
 
-    # ==============================
-    # 施設基準
-    # ==============================
     st.subheader("取得施設基準")
     acquired, missing = get_facility_standard(hospital)
 
@@ -125,9 +127,6 @@ if st.button("分析開始"):
 
     st.success("分析完了")
 
-    # ==============================
-    # Excel出力
-    # ==============================
     file = export_excel(
         hospital,
         info,
