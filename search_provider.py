@@ -15,17 +15,8 @@ HEADERS = {
 def fetch(url, method="GET", data=None):
     try:
         if method == "POST":
-            return requests.post(
-                url,
-                headers=HEADERS,
-                data=data,
-                timeout=10
-            )
-        return requests.get(
-            url,
-            headers=HEADERS,
-            timeout=10
-        )
+            return requests.post(url, headers=HEADERS, data=data, timeout=10)
+        return requests.get(url, headers=HEADERS, timeout=10)
     except:
         return None
 
@@ -54,9 +45,8 @@ def _normalize_google_href(href):
     return None
 
 
-def search_web(query):
+def _search_google(query):
     url = f"https://www.google.com/search?q={quote(query)}&hl=ja&num=10"
-
     r = fetch(url)
 
     if not r:
@@ -74,12 +64,13 @@ def search_web(query):
 
         title = a.get_text(" ", strip=True)
         if not title:
-            continue
+            title = link
 
         results.append({
             "title": title[:200],
             "url": link,
-            "snippet": ""
+            "snippet": "",
+            "source": "google"
         })
 
     deduped = []
@@ -92,6 +83,51 @@ def search_web(query):
         deduped.append(item)
 
     return deduped[:10]
+
+
+def _search_duckduckgo(query):
+    url = "https://html.duckduckgo.com/html/"
+    r = fetch(url, method="POST", data={"q": query})
+
+    if not r:
+        return []
+
+    soup = BeautifulSoup(r.text, "html.parser")
+    results = []
+
+    for a in soup.select("a.result__a"):
+        href = a.get("href")
+        title = a.get_text(" ", strip=True)
+
+        if not href or not href.startswith("http"):
+            continue
+
+        results.append({
+            "title": title[:200] if title else href,
+            "url": href,
+            "snippet": "",
+            "source": "duckduckgo"
+        })
+
+    deduped = []
+    seen = set()
+
+    for item in results:
+        if item["url"] in seen:
+            continue
+        seen.add(item["url"])
+        deduped.append(item)
+
+    return deduped[:10]
+
+
+def search_web(query):
+    results = _search_google(query)
+
+    if results:
+        return results
+
+    return _search_duckduckgo(query)
 
 
 def fetch_page_text(url):
