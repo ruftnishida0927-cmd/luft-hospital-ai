@@ -14,28 +14,10 @@ PREFS = [
 ]
 
 
-def extract_address_block(text):
-
-    lines = text.split("\n")
-
-    for i, line in enumerate(lines):
-
-        if "〒" in line:
-            return "\n".join(lines[i:i+5])
-
-        for p in PREFS:
-            if p in line and ("市" in line or "区" in line):
-                return "\n".join(lines[i:i+5])
-
-    return text[:400]
-
-
 def extract_prefecture(text):
 
-    block = extract_address_block(text)
-
     for p in PREFS:
-        if p in block:
+        if p in text:
             return p
 
     return "不明"
@@ -43,11 +25,9 @@ def extract_prefecture(text):
 
 def extract_station(text):
 
-    block = extract_address_block(text)
-
     m = re.search(
-        r"([^\s、。()（）]{1,12}駅)",
-        block
+        r"([^\s、。]{1,12}駅)",
+        text
     )
 
     if m:
@@ -69,10 +49,9 @@ def extract_bed_count(text):
 def extract_departments(text):
 
     deps = [
-    "内科","外科","整形外科","小児科","皮膚科",
-    "泌尿器科","精神科","心療内科","眼科",
-    "耳鼻咽喉科","リハビリテーション科",
-    "脳神経外科","循環器内科","消化器内科"
+    "内科","外科","整形外科","小児科",
+    "皮膚科","泌尿器科","精神科",
+    "心療内科","眼科","耳鼻咽喉科"
     ]
 
     found = []
