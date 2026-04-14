@@ -30,7 +30,7 @@ def build_info(text, name, url, source):
     }
 
 
-def score_candidate(info):
+def score_candidate(info, area=""):
     score = 0
 
     address = info.get("住所", "")
@@ -40,23 +40,17 @@ def score_candidate(info):
     deps = info.get("診療科", [])
     source = info.get("取得元", "")
 
-    # 基本点
     if address:
         score += 50
-
     if region not in ["", "不明", None]:
         score += 20
-
     if station not in ["", "不明", None]:
         score += 10
-
     if beds not in ["", "不明", None]:
         score += 10
-
     if deps and deps != ["調査中"]:
         score += 10
 
-    # ソース加点
     if source == "official":
         score += 15
     elif source == "portal":
@@ -64,19 +58,21 @@ def score_candidate(info):
     elif source == "wiki":
         score += 5
 
-    # 不整合減点
+    if area:
+        if area in address or area == region or area in station:
+            score += 25
+        else:
+            score -= 15
+
     if address and region == "不明":
         score -= 20
 
-    # 住所が薄い
     if len(address) < 8:
         score -= 10
 
-    # 診療科も病床数も駅もない
     if station == "不明" and beds == "不明" and deps == ["調査中"]:
         score -= 20
 
-    # 下限
     if score < 0:
         score = 0
 
@@ -90,11 +86,9 @@ def is_valid_candidate(info):
     beds = info.get("病床数", "不明")
     deps = info.get("診療科", ["調査中"])
 
-    # 住所か地域は必須
     if not address and region == "不明":
         return False
 
-    # 何も情報がない候補は除外
     if (
         not address
         and station == "不明"
@@ -128,8 +122,8 @@ def dedupe_candidates(candidates):
     return deduped
 
 
-def get_hospital_basic_info(name):
-    candidate_sources = search_hospital_candidate_urls(name)
+def get_hospital_basic_info(name, area=""):
+    candidate_sources = search_hospital_candidate_urls(name, area)
 
     candidates = []
 
@@ -167,7 +161,7 @@ def get_hospital_basic_info(name):
         }]
 
     for c in candidates:
-        c["スコア"] = score_candidate(c)
+        c["スコア"] = score_candidate(c, area)
 
     candidates.sort(key=lambda x: x["スコア"], reverse=True)
 
