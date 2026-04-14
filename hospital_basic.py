@@ -33,23 +33,30 @@ def build_info(text, name, url, source):
 def score_candidate(info):
     score = 0
 
-    if info.get("住所"):
+    address = info.get("住所", "")
+    region = info.get("地域", "不明")
+    station = info.get("最寄駅", "不明")
+    beds = info.get("病床数", "不明")
+    deps = info.get("診療科", [])
+    source = info.get("取得元", "")
+
+    # 基本点
+    if address:
         score += 50
 
-    if info.get("地域") not in ["", "不明", None]:
+    if region not in ["", "不明", None]:
         score += 20
 
-    if info.get("最寄駅") not in ["", "不明", None]:
+    if station not in ["", "不明", None]:
         score += 10
 
-    if info.get("病床数") not in ["", "不明", None]:
+    if beds not in ["", "不明", None]:
         score += 10
 
-    deps = info.get("診療科", [])
     if deps and deps != ["調査中"]:
         score += 10
 
-    source = info.get("取得元", "")
+    # ソース加点
     if source == "official":
         score += 15
     elif source == "portal":
@@ -57,20 +64,42 @@ def score_candidate(info):
     elif source == "wiki":
         score += 5
 
+    # 不整合減点
+    if address and region == "不明":
+        score -= 20
+
+    # 住所が薄い
+    if len(address) < 8:
+        score -= 10
+
+    # 診療科も病床数も駅もない
+    if station == "不明" and beds == "不明" and deps == ["調査中"]:
+        score -= 20
+
+    # 下限
+    if score < 0:
+        score = 0
+
     return score
 
 
 def is_valid_candidate(info):
-    # 住所 or 地域がないものは弱すぎる
-    if not info.get("住所") and info.get("地域") == "不明":
+    address = info.get("住所", "")
+    region = info.get("地域", "不明")
+    station = info.get("最寄駅", "不明")
+    beds = info.get("病床数", "不明")
+    deps = info.get("診療科", ["調査中"])
+
+    # 住所か地域は必須
+    if not address and region == "不明":
         return False
 
-    # 住所も駅も病床も診療科も全部ないものは除外
+    # 何も情報がない候補は除外
     if (
-        not info.get("住所")
-        and info.get("最寄駅") == "不明"
-        and info.get("病床数") == "不明"
-        and info.get("診療科") == ["調査中"]
+        not address
+        and station == "不明"
+        and beds == "不明"
+        and deps == ["調査中"]
     ):
         return False
 
@@ -87,7 +116,7 @@ def dedupe_candidates(candidates):
             c.get("地域", ""),
             c.get("最寄駅", ""),
             str(c.get("病床数", "")),
-            c.get("URL", "")
+            c.get("取得元", "")
         )
 
         if key in seen:
@@ -104,7 +133,7 @@ def get_hospital_basic_info(name):
 
     candidates = []
 
-    for item in candidate_sources[:8]:
+    for item in candidate_sources[:10]:
         url = item["url"]
         source = item.get("source", "other")
 
@@ -133,9 +162,13 @@ def get_hospital_basic_info(name):
             "療養": False,
             "診療科": ["調査中"],
             "URL": "",
-            "取得元": ""
+            "取得元": "",
+            "スコア": 0
         }]
 
-    candidates.sort(key=score_candidate, reverse=True)
+    for c in candidates:
+        c["スコア"] = score_candidate(c)
+
+    candidates.sort(key=lambda x: x["スコア"], reverse=True)
 
     return candidates
