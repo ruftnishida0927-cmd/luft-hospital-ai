@@ -1,133 +1,97 @@
 # -*- coding: utf-8 -*-
-import requests
-from bs4 import BeautifulSoup
+from urllib.parse import urlparse
 
-from extractors import (
-    extract_prefecture,
-    extract_station,
-    extract_bed_count
-)
+from search_provider import search_web
 
 
-def fetch(url):
+def classify_source(url):
+    host = urlparse(url).netloc.lower()
 
-    try:
-        return requests.get(
-            url,
-            headers={"User-Agent": "Mozilla/5.0"},
-            timeout=10
-        )
-    except:
-        return None
+    if "wikipedia.org" in host:
+        return "wiki"
+
+    official_like = [
+        ".or.jp",
+        ".jp",
+        ".hospital",
+        ".clinic"
+    ]
+
+    portal_keywords = [
+        "caloo",
+        "byoinnavi",
+        "medicalnote",
+        "qlife",
+        "scuel",
+        "navitime",
+        "fdoc",
+        "epark"
+    ]
+
+    ng_keywords = [
+        "indeed",
+        "townwork",
+        "rikunabi",
+        "job-medley",
+        "staffservice",
+        "manpower",
+        "hatarako",
+        "baitoru",
+        "en-gage",
+        "career",
+        "求人"
+    ]
+
+    for ng in ng_keywords:
+        if ng in host:
+            return "job"
+
+    for kw in portal_keywords:
+        if kw in host:
+            return "portal"
+
+    for suffix in official_like:
+        if host.endswith(suffix):
+            return "official"
+
+    return "other"
 
 
-# -------------------------
-# Google検索
-# -------------------------
+def is_hospital_candidate(url):
+    source = classify_source(url)
+    return source in ["official", "portal", "wiki"]
 
-def search_google(name):
 
-    url = f"https://www.google.com/search?q={name}+病院"
-
-    r = fetch(url)
-
-    if not r:
-        return []
-
-    soup = BeautifulSoup(r.text, "html.parser")
+def search_hospital_candidate_urls(name):
+    queries = [
+        f"{name} 病院 公式",
+        f"{name} 病院 住所",
+        f"{name} 病院 アクセス",
+        f"{name} 医療法人",
+        f"{name} 病院 所在地"
+    ]
 
     results = []
 
-    for a in soup.select("a"):
+    for query in queries:
+        items = search_web(query)
 
-        href = a.get("href")
+        for item in items:
+            url = item["url"]
 
-        if not href:
-            continue
-
-        if "http" not in href:
-            continue
-
-        if "google" in href:
-            continue
-
-        try:
-
-            r2 = fetch(href)
-
-            if not r2:
+            if not is_hospital_candidate(url):
                 continue
 
-            text = BeautifulSoup(
-                r2.text,
-                "html.parser"
-            ).get_text()
+            item["source"] = classify_source(url)
+            results.append(item)
 
-            info = {
-                "住所": text[:300],
-                "地域": extract_prefecture(text),
-                "最寄駅": extract_station(text),
-                "病床数": extract_bed_count(text),
-                "source": "google"
-            }
+    deduped = []
+    seen = set()
 
-            results.append(info)
+    for item in results:
+        if item["url"] in seen:
+            continue
+        seen.add(item["url"])
+        deduped.append(item)
 
-        except:
-            pass
-
-    return results[:3]
-
-
-# -------------------------
-# Wikipedia
-# -------------------------
-
-def search_wikipedia(name):
-
-    url = f"https://ja.wikipedia.org/wiki/{name}"
-
-    r = fetch(url)
-
-    if not r:
-        return []
-
-    text = BeautifulSoup(
-        r.text,
-        "html.parser"
-    ).get_text()
-
-    return [{
-        "住所": text[:300],
-        "地域": extract_prefecture(text),
-        "最寄駅": extract_station(text),
-        "病床数": extract_bed_count(text),
-        "source": "wiki"
-    }]
-
-
-# -------------------------
-# 厚労省
-# -------------------------
-
-def search_mhlw(name):
-
-    url = "https://www.iryou.teikyouseido.mhlw.go.jp/"
-
-    r = fetch(url)
-
-    if not r:
-        return []
-
-    text = BeautifulSoup(
-        r.text,
-        "html.parser"
-    ).get_text()
-
-    return [{
-        "住所": text[:300],
-        "地域": extract_prefecture(text),
-        "最寄駅": extract_station(text),
-        "病床数": extract_bed_count(text),
-        "source": "mhlw"
-    }]
+    return deduped[:10]
