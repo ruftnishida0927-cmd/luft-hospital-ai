@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
-from search_provider import search_web, fetch_page_text
+import requests
+from bs4 import BeautifulSoup
+
 from extractors import (
     extract_prefecture,
     extract_departments,
@@ -9,106 +11,72 @@ from extractors import (
 )
 
 
-def extract_address(text):
+def search_mhlw(name):
 
-    lines = text.split("\n")
+    url = "https://www.iryou.teikyouseido.mhlw.go.jp/znk-web/juminkanja/S2300/initialize"
 
-    for line in lines:
+    try:
+        r = requests.get(url, timeout=10)
+    except:
+        return []
 
-        if "〒" in line:
-            return line.strip()
+    # 厚労省はPOST検索
+    search_url = "https://www.iryou.teikyouseido.mhlw.go.jp/znk-web/juminkanja/S2300/"
 
-        if "都" in line or "道" in line or "府" in line or "県" in line:
-            if "市" in line or "区" in line or "町" in line:
-                return line.strip()
-
-    return ""
-
-
-def build_info(text, name, url):
-
-    address = extract_address(text)
-    pref = extract_prefecture(text)
-    flags = extract_hospital_type_flags(text)
-
-    return {
-        "病院名": name,
-        "病院種別": "一般病院",
-        "住所": address,
-        "地域": pref,
-        "最寄駅": extract_station(text),
-        "病床数": extract_bed_count(text) or "不明",
-        "急性期": flags["急性期"],
-        "回復期": flags["回復期"],
-        "療養": flags["療養"],
-        "診療科": extract_departments(text) or ["調査中"],
-        "URL": url
+    data = {
+        "kikancd": "",
+        "kikannm": name
     }
 
+    try:
+        r = requests.post(search_url, data=data, timeout=10)
+    except:
+        return []
 
-def score_candidate(info):
+    soup = BeautifulSoup(r.text, "html.parser")
 
-    score = 0
+    results = []
 
-    if info["住所"]:
-        score += 50
+    for tr in soup.select("tr"):
 
-    if info["地域"] != "不明":
-        score += 20
+        text = tr.get_text()
 
-    if info["最寄駅"] != "不明":
-        score += 10
+        if name not in text:
+            continue
 
-    if info["病床数"] != "不明":
-        score += 10
+        results.append(text)
 
-    if info["診療科"] != ["調査中"]:
-        score += 10
-
-    return score
+    return results
 
 
 def get_hospital_basic_info(name):
 
-    queries = [
-        f"{name} 病院",
-        f"{name} 病院 住所",
-        f"{name} 医療法人",
-        f"{name} 病院 アクセス"
-    ]
-
-    candidate_urls = []
-
-    for query in queries:
-
-        results = search_web(query)
-
-        for r in results:
-            candidate_urls.append(r["url"])
-
-    # 重複除去
-    seen = set()
-    urls = []
-
-    for u in candidate_urls:
-        if u in seen:
-            continue
-        seen.add(u)
-        urls.append(u)
+    results = search_mhlw(name)
 
     candidates = []
 
-    for url in urls[:6]:
+    for text in results:
 
-        text = fetch_page_text(url)
+        pref = extract_prefecture(text)
 
-        if not text:
-            continue
+        info = {
+            "病院名": name,
+            "病院種別": "一般病院",
+            "住所": text,
+            "地域": pref,
+            "最寄駅": extract_station(text),
+            "病床数": extract_bed_count(text) or "不明",
+            "急性期": False,
+            "回復期": False,
+            "療養": False,
+            "診療科": ["調査中"],
+            "URL": "厚労省"
+        }
 
-        info = build_info(text, name, url)
         candidates.append(info)
 
     if not candidates:
+
         return [{
             "病院名": name,
             "病院種別": "不明",
@@ -122,10 +90,5 @@ def get_hospital_basic_info(name):
             "診療科": ["調査中"],
             "URL": ""
         }]
-
-    candidates.sort(
-        key=lambda x: score_candidate(x),
-        reverse=True
-    )
 
     return candidates
