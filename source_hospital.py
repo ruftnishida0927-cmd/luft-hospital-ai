@@ -7,14 +7,8 @@ from search_provider import search_web
 def classify_source(url):
     host = urlparse(url).netloc.lower()
 
-    ng_keywords = [
-        "indeed", "townwork", "rikunabi", "job-medley",
-        "staffservice", "manpower", "hatarako", "baitoru",
-        "en-gage", "career", "求人"
-    ]
-    for ng in ng_keywords:
-        if ng in host:
-            return "job"
+    if "wikipedia.org" in host:
+        return "wiki"
 
     portal_keywords = [
         "caloo", "byoinnavi", "medicalnote", "qlife",
@@ -24,9 +18,16 @@ def classify_source(url):
         if kw in host:
             return "portal"
 
-    if "wikipedia.org" in host:
-        return "wiki"
+    ng_keywords = [
+        "indeed", "townwork", "rikunabi", "job-medley",
+        "staffservice", "manpower", "hatarako", "baitoru",
+        "en-gage", "career"
+    ]
+    for ng in ng_keywords:
+        if ng in host:
+            return "job"
 
+    # .or.jp / .jp は公式候補として広めに扱う
     if host.endswith(".or.jp") or host.endswith(".jp"):
         return "official"
 
@@ -34,27 +35,34 @@ def classify_source(url):
 
 
 def is_hospital_candidate(url):
-    return classify_source(url) in ["official", "portal", "wiki"]
+    source = classify_source(url)
+
+    # 厳しくしすぎると全部死ぬので、job以外は通す
+    return source != "job"
 
 
 def search_hospital_candidate_urls(name, area=""):
     queries = []
 
+    # 地域指定あり
     if area:
         queries += [
-            f"{name} {area} 病院 公式",
+            f"{name} {area} 病院",
             f"{name} {area} 病院 住所",
             f"{name} {area} 病院 アクセス",
             f"{name} {area} 医療法人",
             f"{name} {area} 病院 所在地",
+            f"{name} {area} クリニック"
         ]
 
+    # 地域指定なし
     queries += [
-        f"{name} 病院 公式",
+        f"{name} 病院",
         f"{name} 病院 住所",
         f"{name} 病院 アクセス",
         f"{name} 医療法人",
         f"{name} 病院 所在地",
+        f"{name} クリニック"
     ]
 
     results = []
@@ -63,14 +71,21 @@ def search_hospital_candidate_urls(name, area=""):
         items = search_web(query)
 
         for item in items:
-            url = item["url"]
+            url = item.get("url", "")
+            if not url:
+                continue
 
             if not is_hospital_candidate(url):
                 continue
 
-            item["source"] = classify_source(url)
-            results.append(item)
+            results.append({
+                "title": item.get("title", ""),
+                "url": url,
+                "snippet": item.get("snippet", ""),
+                "source": classify_source(url)
+            })
 
+    # 重複除去
     deduped = []
     seen = set()
 
@@ -80,4 +95,4 @@ def search_hospital_candidate_urls(name, area=""):
         seen.add(item["url"])
         deduped.append(item)
 
-    return deduped[:12]
+    return deduped[:15]
