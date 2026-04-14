@@ -34,7 +34,7 @@ def build_info(text, name, url):
 
     return {
         "病院名": name,
-        "URL": url,
+        "病院種別": "一般病院",
         "住所": address,
         "地域": pref,
         "最寄駅": extract_station(text),
@@ -43,6 +43,7 @@ def build_info(text, name, url):
         "回復期": flags["回復期"],
         "療養": flags["療養"],
         "診療科": extract_departments(text) or ["調査中"],
+        "URL": url
     }
 
 
