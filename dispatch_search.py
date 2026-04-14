@@ -1,72 +1,23 @@
 # -*- coding: utf-8 -*-
-import requests
-from bs4 import BeautifulSoup
-
 from extractors import build_job_features
 from match_engine import build_match_result
+from search_provider import search_web, fetch_page_text
 
 
-def fetch(url):
-    try:
-        return requests.get(
-            url,
-            headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-                "Accept-Language": "ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-                "Connection": "keep-alive"
-            },
-            timeout=10
-        )
-    except:
-        return None
+def _is_likely_job_url(url: str) -> bool:
+    u = url.lower()
 
+    job_keywords = [
+        "indeed", "townwork", "rikunabi", "job-medley",
+        "staffservice", "manpower", "hatarako", "baitoru",
+        "career", "mc-nurse", "en-gage", "求人"
+    ]
 
-def search_google_links(query):
-    url = f"https://www.google.com/search?q={query}&hl=ja&num=10"
+    for kw in job_keywords:
+        if kw in u:
+            return True
 
-    r = fetch(url)
-
-    if not r:
-        return []
-
-    soup = BeautifulSoup(r.text, "html.parser")
-
-    links = []
-
-    for a in soup.select("a"):
-        href = a.get("href")
-
-        if not href:
-            continue
-
-        if "http" not in href:
-            continue
-
-        if "google" in href:
-            continue
-
-        if "youtube" in href:
-            continue
-
-        links.append(href)
-
-    deduped = []
-    for link in links:
-        if link not in deduped:
-            deduped.append(link)
-
-    return deduped[:3]
-
-
-def extract_page_text(url):
-    r = fetch(url)
-
-    if not r:
-        return ""
-
-    soup = BeautifulSoup(r.text, "html.parser")
-    return soup.get_text()
+    return False
 
 
 def search_dispatch_jobs(hospital_info):
@@ -75,49 +26,60 @@ def search_dispatch_jobs(hospital_info):
     station = hospital_info.get("最寄駅", "不明")
 
     queries = [
-        f"{name} 看護助手 派遣 {region}",
-        f"{name} 医療事務 派遣 {region}",
-        f"{name} 看護補助 派遣 {region}",
+        f"{name} 看護助手 派遣",
+        f"{name} 医療事務 派遣",
+        f"{name} 看護補助 派遣",
+        f"{name} 無資格 病院 派遣",
         f"{station} 看護助手 派遣",
-        f"{station} 医療事務 派遣"
+        f"{station} 医療事務 派遣",
+        f"{region} 看護助手 派遣 病院"
     ]
+
+    candidate_urls = []
+
+    for query in queries:
+        results = search_web(query)
+
+        for r in results:
+            url = r["url"]
+
+            if not _is_likely_job_url(url):
+                continue
+
+            candidate_urls.append(url)
+
+    # 重複除去
+    deduped_urls = []
+    seen = set()
+
+    for u in candidate_urls:
+        if u in seen:
+            continue
+        seen.add(u)
+        deduped_urls.append(u)
 
     results = []
 
-    for query in queries:
-        links = search_google_links(query)
+    for url in deduped_urls[:5]:
+        text = fetch_page_text(url)
 
-        for link in links:
-            try:
-                text = extract_page_text(link)
+        if not text:
+            continue
 
-                if not text:
-                    continue
+        job_features = build_job_features(text)
+        match = build_match_result(hospital_info, job_features)
 
-                job_features = build_job_features(text)
+        results.append({
+            "URL": url,
+            "一致率": match["一致率"],
+            "判定": match["判定"],
+            "根拠": " / ".join(match["根拠"]),
+            "最寄駅": job_features["最寄駅"],
+            "徒歩": job_features["徒歩分数"],
+            "地域": job_features["地域"],
+            "職種": ",".join(job_features["職種キーワード"])
+        })
 
-                match = build_match_result(
-                    hospital_info,
-                    job_features
-                )
+    results.sort(key=lambda x: x["一致率"], reverse=True)
 
-                results.append({
-                    "URL": link,
-                    "一致率": match["一致率"],
-                    "判定": match["判定"],
-                    "根拠": " / ".join(match["根拠"]),
-                    "最寄駅": job_features["最寄駅"],
-                    "徒歩": job_features["徒歩分数"],
-                    "地域": job_features["地域"],
-                    "職種": ",".join(job_features["職種キーワード"])
-                })
-
-            except:
-                pass
-
-    results.sort(
-        key=lambda x: x["一致率"],
-        reverse=True
-    )
-
-    return results[:3]
+    return results[:5]
