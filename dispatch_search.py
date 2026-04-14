@@ -4,13 +4,42 @@ from match_engine import build_match_result
 from search_provider import search_web, fetch_page_text
 
 
+def extract_local_context(text, keyword, window=400):
+    """
+    キーワード周辺だけ切り出す
+    ページ混在対策
+    """
+
+    if not keyword:
+        return text[:800]
+
+    idx = text.find(keyword)
+
+    if idx == -1:
+        return text[:800]
+
+    start = max(0, idx - window)
+    end = idx + window
+
+    return text[start:end]
+
+
 def _is_likely_job_url(url: str) -> bool:
     u = url.lower()
 
     job_keywords = [
-        "indeed", "townwork", "rikunabi", "job-medley",
-        "staffservice", "manpower", "hatarako", "baitoru",
-        "career", "mc-nurse", "en-gage", "求人"
+        "indeed",
+        "townwork",
+        "rikunabi",
+        "job-medley",
+        "staffservice",
+        "manpower",
+        "hatarako",
+        "baitoru",
+        "career",
+        "mc-nurse",
+        "en-gage",
+        "求人"
     ]
 
     for kw in job_keywords:
@@ -21,6 +50,7 @@ def _is_likely_job_url(url: str) -> bool:
 
 
 def search_dispatch_jobs(hospital_info):
+
     name = hospital_info["病院名"]
     region = hospital_info.get("地域", "不明")
     station = hospital_info.get("最寄駅", "不明")
@@ -38,9 +68,11 @@ def search_dispatch_jobs(hospital_info):
     candidate_urls = []
 
     for query in queries:
+
         results = search_web(query)
 
         for r in results:
+
             url = r["url"]
 
             if not _is_likely_job_url(url):
@@ -61,13 +93,24 @@ def search_dispatch_jobs(hospital_info):
     results = []
 
     for url in deduped_urls[:5]:
+
         text = fetch_page_text(url)
 
         if not text:
             continue
 
-        job_features = build_job_features(text)
-        match = build_match_result(hospital_info, job_features)
+        # ここが重要（病院名周辺のみ抽出）
+        local = extract_local_context(
+            text,
+            hospital_info["病院名"]
+        )
+
+        job_features = build_job_features(local)
+
+        match = build_match_result(
+            hospital_info,
+            job_features
+        )
 
         results.append({
             "URL": url,
@@ -80,6 +123,9 @@ def search_dispatch_jobs(hospital_info):
             "職種": ",".join(job_features["職種キーワード"])
         })
 
-    results.sort(key=lambda x: x["一致率"], reverse=True)
+    results.sort(
+        key=lambda x: x["一致率"],
+        reverse=True
+    )
 
     return results[:5]
