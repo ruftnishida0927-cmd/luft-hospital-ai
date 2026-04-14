@@ -33,12 +33,10 @@ def extract_address_block(text):
     text = normalize_text(text)
     lines = [line.strip() for line in text.split("\n") if line.strip()]
 
-    # 郵便番号優先
     for i, line in enumerate(lines):
         if "〒" in line:
             return "\n".join(lines[i:i+6])
 
-    # 住所っぽい行
     for i, line in enumerate(lines):
         if any(pref in line for pref in PREFS):
             if any(x in line for x in ["市", "区", "町", "村"]):
@@ -52,12 +50,6 @@ def extract_prefecture(text):
 
     for pref in PREFS:
         if pref in block:
-            return pref
-
-    # fallback
-    full = normalize_text(text)
-    for pref in PREFS:
-        if pref in full:
             return pref
 
     return "不明"
@@ -83,9 +75,9 @@ def extract_station(text):
     block = extract_address_block(text)
 
     patterns = [
-        r"([^\s、。()（）]{1,12}駅)",
         r"最寄り駅[:：]?\s*([^\s、。()（）]{1,12}駅)",
-        r"アクセス[:：]?\s*([^\s、。()（）]{1,12}駅)"
+        r"アクセス[:：]?\s*([^\s、。()（）]{1,12}駅)",
+        r"([^\s、。()（）]{1,12}駅)"
     ]
 
     for pattern in patterns:
