@@ -15,8 +15,17 @@ HEADERS = {
 def fetch(url, method="GET", data=None):
     try:
         if method == "POST":
-            return requests.post(url, headers=HEADERS, data=data, timeout=10)
-        return requests.get(url, headers=HEADERS, timeout=10)
+            return requests.post(
+                url,
+                headers=HEADERS,
+                data=data,
+                timeout=10
+            )
+        return requests.get(
+            url,
+            headers=HEADERS,
+            timeout=10
+        )
     except:
         return None
 
@@ -45,14 +54,8 @@ def _normalize_google_href(href):
     return None
 
 
-def _search_google(query):
-    url = f"https://www.google.com/search?q={quote(query)}&hl=ja&num=10"
-    r = fetch(url)
-
-    if not r:
-        return []
-
-    soup = BeautifulSoup(r.text, "html.parser")
+def _extract_google_results(html):
+    soup = BeautifulSoup(html, "html.parser")
     results = []
 
     for a in soup.select("a"):
@@ -64,7 +67,7 @@ def _search_google(query):
 
         title = a.get_text(" ", strip=True)
         if not title:
-            title = link
+            continue
 
         results.append({
             "title": title[:200],
@@ -82,7 +85,17 @@ def _search_google(query):
         seen.add(item["url"])
         deduped.append(item)
 
-    return deduped[:10]
+    return deduped
+
+
+def _search_google(query):
+    url = f"https://www.google.com/search?q={quote(query)}&hl=ja&num=10"
+    r = fetch(url)
+
+    if not r:
+        return []
+
+    return _extract_google_results(r.text)[:10]
 
 
 def _search_duckduckgo(query):
