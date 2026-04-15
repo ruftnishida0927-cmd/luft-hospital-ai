@@ -159,7 +159,7 @@ if st.button("分析開始"):
     # ==============================
     # 看護配置
     # ==============================
-    nursing = get_nursing_config(hospital)
+    nursing = get_nursing_config(hospital, area, info)
 
     st.subheader("看護配置")
     st.write("入院基本料:", nursing["入院基本料"])
