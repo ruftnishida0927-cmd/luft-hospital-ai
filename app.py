@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
 import streamlit as st
 import time
+import traceback
 
 from hospital_basic import get_hospital_basic_info_debug
 from facility_standard import get_facility_standard, get_facility_standard_debug
-from nursing_config import get_nursing_config
-from staff_contact import get_staff_contact
+from nursing_config import get_nursing_config, get_nursing_config_debug
+from staff_contact import get_staff_contact, get_staff_contact_debug
 from excel_export import export_excel
 
 st.set_page_config(page_title="ルフト病院分析AI", layout="centered")
@@ -14,7 +15,7 @@ st.title("ルフト病院分析AI")
 
 hospital = st.text_input("病院名を入力")
 area = st.text_input("都道府県または市区町村（任意・精度向上用）")
-debug_mode = st.checkbox("デバッグ情報を表示する", value=False)
+debug_mode = st.checkbox("デバッグ情報を表示する", value=True)
 
 if st.button("分析開始"):
 
@@ -25,54 +26,66 @@ if st.button("分析開始"):
     st.write("分析中...")
     time.sleep(1)
 
-    # ==============================
-    # 病院候補取得
-    # ==============================
-    candidates, debug = get_hospital_basic_info_debug(hospital, area)
-    info = candidates[0]
+    info = None
+    candidates = []
+    hospital_debug = None
+
+    acquired = []
+    missing = []
+    facility_debug = None
+
+    nursing = None
+    nursing_debug = None
+
+    contact = None
+    contact_debug = None
 
     # ==============================
-    # 病院検索デバッグ
+    # 1. 病院検索
     # ==============================
-    if debug_mode:
+    st.subheader("① 病院検索")
+
+    try:
+        candidates, hospital_debug = get_hospital_basic_info_debug(hospital, area)
+        info = candidates[0]
+
+        st.success("病院検索 OK")
+        st.write("候補数:", len(candidates))
+        st.write("採用候補:", info.get("病院名", ""))
+        st.write("住所:", info.get("住所", ""))
+        st.write("地域:", info.get("地域", ""))
+        st.write("最寄駅:", info.get("最寄駅", ""))
+        st.write("病床数:", info.get("病床数", ""))
+
+    except Exception as e:
+        st.error("病院検索でエラー")
+        st.code(traceback.format_exc())
+        st.stop()
+
+    # 病院検索デバッグ
+    if debug_mode and hospital_debug:
         st.subheader("病院検索デバッグ")
-        st.write("入力病院名:", debug["input_name"])
-        st.write("入力エリア:", debug["input_area"])
-        st.write("検索結果件数:", debug["search_results_count"])
-        st.write("候補URL件数:", debug["candidate_source_count"])
-        st.write("本文取得成功件数:", debug["page_fetch_success_count"])
-        st.write("有効候補件数:", debug["valid_candidate_count"])
+
+        st.write("入力病院名:", hospital_debug.get("input_name", ""))
+        st.write("入力エリア:", hospital_debug.get("input_area", ""))
+        st.write("検索結果件数:", hospital_debug.get("search_results_count", 0))
+        st.write("候補URL件数:", hospital_debug.get("candidate_source_count", 0))
+        st.write("本文取得成功件数:", hospital_debug.get("page_fetch_success_count", 0))
+        st.write("有効候補件数:", hospital_debug.get("valid_candidate_count", 0))
 
         st.subheader("候補URL一覧")
-        for item in debug["candidate_sources"]:
+        for item in hospital_debug.get("candidate_sources", []):
             st.write("-------------")
             st.write("title:", item.get("title", ""))
             st.write("source:", item.get("source", ""))
             st.write("url:", item.get("url", ""))
 
-        st.subheader("ページ解析結果")
-        for d in debug["page_details"]:
-            st.write("-------------")
-            st.write("title:", d.get("title", ""))
-            st.write("source:", d.get("source", ""))
-            st.write("url:", d.get("url", ""))
-            st.write("fetched:", d.get("fetched", False))
-            st.write("text_len:", d.get("text_len", 0))
-            st.write("住所:", d.get("住所", ""))
-            st.write("地域:", d.get("地域", "不明"))
-            st.write("最寄駅:", d.get("最寄駅", "不明"))
-            st.write("病床数:", d.get("病床数", "不明"))
-            st.write("valid:", d.get("valid", False))
-
     # ==============================
     # 候補病院
     # ==============================
     st.subheader("候補病院")
-    st.write("候補数:", len(candidates))
-
     for i, cand in enumerate(candidates):
         st.write("-------------")
-
         if i == 0:
             st.write("★採用候補")
 
@@ -108,11 +121,8 @@ if st.button("分析開始"):
     st.write("取得元:", info.get("取得元", ""))
     st.write("URL:", info.get("URL", ""))
 
-    # ==============================
-    # 病院特定チェック
-    # ==============================
     if info.get("スコア", 0) < 70:
-        st.error("病院特定の精度が低いため、後続処理を停止しました。候補病院を確認してください。")
+        st.error("病院特定の精度が低いため、後続処理を停止しました。")
         st.stop()
 
     if info.get("地域", "不明") == "不明":
@@ -124,61 +134,117 @@ if st.button("分析開始"):
         st.stop()
 
     # ==============================
-    # 施設基準
+    # 2. 施設基準
     # ==============================
-    if debug_mode:
-        acquired, missing, facility_debug = get_facility_standard_debug(
-            hospital,
-            area,
-            info
-        )
-    else:
-        acquired, missing = get_facility_standard(
-            hospital,
-            area,
-            info
-        )
-        facility_debug = None
+    st.subheader("② 施設基準検索")
 
-    st.subheader("取得施設基準")
-    for a in acquired:
-        st.write("・", a)
+    try:
+        if debug_mode:
+            acquired, missing, facility_debug = get_facility_standard_debug(
+                hospital,
+                area,
+                info
+            )
+        else:
+            acquired, missing = get_facility_standard(
+                hospital,
+                area,
+                info
+            )
 
-    if debug_mode and facility_debug is not None:
+        st.success("施設基準検索 OK")
+        st.write("取得件数:", len(acquired))
+        for a in acquired:
+            st.write("・", a)
+
+    except Exception as e:
+        st.error("施設基準検索でエラー")
+        st.code(traceback.format_exc())
+        st.stop()
+
+    if debug_mode and facility_debug:
         st.subheader("施設基準検索デバッグ")
-        st.write("候補URL件数:", facility_debug["candidate_url_count"])
+        st.write("候補URL件数:", facility_debug.get("candidate_url_count", 0))
+        st.write("base_standard:", facility_debug.get("base_standard", ""))
+        st.write("base_family:", facility_debug.get("base_family", ""))
 
-        for d in facility_debug["page_details"]:
+        for d in facility_debug.get("page_details", []):
             st.write("-------------")
             st.write("title:", d.get("title", ""))
             st.write("url:", d.get("url", ""))
             st.write("fetched:", d.get("fetched", False))
             st.write("text_len:", d.get("text_len", 0))
-            st.write("抽出施設基準:", " / ".join(d.get("acquired", [])))
+            st.write("base_standard:", d.get("base_standard", ""))
+            st.write("base_hits:", " / ".join(d.get("base_hits", [])))
+            st.write("additional_standards:", " / ".join(d.get("additional_standards", [])))
 
     # ==============================
-    # 看護配置
+    # 3. 看護配置
     # ==============================
-    nursing = get_nursing_config(hospital, area, info)
+    st.subheader("③ 看護配置")
 
-    st.subheader("看護配置")
-    st.write("入院基本料:", nursing["入院基本料"])
-    st.write("看護配置:", nursing["看護配置"])
-    st.write("看護補助:", nursing["看護補助"])
-    st.write("夜間補助:", nursing["夜間補助"])
-    st.write("看護必要度:", nursing["看護必要度"])
+    try:
+        if debug_mode:
+            nursing, nursing_debug = get_nursing_config_debug(hospital, area, info)
+        else:
+            nursing = get_nursing_config(hospital, area, info)
+
+        st.success("看護配置推定 OK")
+        st.write("入院基本料:", nursing.get("入院基本料", ""))
+        st.write("看護配置:", nursing.get("看護配置", ""))
+        st.write("看護補助:", nursing.get("看護補助", ""))
+        st.write("夜間補助:", nursing.get("夜間補助", ""))
+        st.write("看護必要度:", nursing.get("看護必要度", ""))
+
+    except Exception as e:
+        st.error("看護配置でエラー")
+        st.code(traceback.format_exc())
+        st.stop()
+
+    if debug_mode and nursing_debug:
+        st.subheader("看護配置デバッグ")
+        st.write("base_standard:", nursing_debug.get("base_standard", ""))
+        st.write("base_family:", nursing_debug.get("base_family", ""))
+        st.write("facility_acquired:", " / ".join(nursing_debug.get("facility_acquired", [])))
 
     # ==============================
-    # 採用窓口
+    # 4. 採用窓口
     # ==============================
-    contact = get_staff_contact(hospital)
+    st.subheader("④ 採用窓口")
 
-    st.subheader("採用窓口")
-    st.write("看護部長:", contact["看護部長"])
-    st.write("事務長:", contact["事務長"])
-    st.write("人事担当:", contact["人事担当"])
-    st.write("代表電話:", contact["代表電話"])
-    st.write("採用窓口:", contact["採用窓口"])
+    try:
+        if debug_mode:
+            contact, contact_debug = get_staff_contact_debug(hospital, area, info)
+        else:
+            contact = get_staff_contact(hospital, area, info)
+
+        st.success("採用窓口取得 OK")
+        st.write("看護部長:", contact.get("看護部長", ""))
+        st.write("事務長:", contact.get("事務長", ""))
+        st.write("人事担当:", contact.get("人事担当", ""))
+        st.write("代表電話:", contact.get("代表電話", ""))
+        st.write("採用窓口:", contact.get("採用窓口", ""))
+
+    except Exception as e:
+        st.error("採用窓口でエラー")
+        st.code(traceback.format_exc())
+        st.stop()
+
+    if debug_mode and contact_debug:
+        st.subheader("採用窓口デバッグ")
+        st.write("候補URL件数:", contact_debug.get("candidate_url_count", 0))
+        for d in contact_debug.get("page_details", []):
+            st.write("-------------")
+            st.write("title:", d.get("title", ""))
+            st.write("url:", d.get("url", ""))
+            st.write("fetched:", d.get("fetched", False))
+            st.write("text_len:", d.get("text_len", 0))
+            st.write("看護部長:", d.get("看護部長", ""))
+            st.write("事務長:", d.get("事務長", ""))
+            st.write("人事担当:", d.get("人事担当", ""))
+            st.write("代表電話:", d.get("代表電話", ""))
+            st.write("採用窓口:", d.get("採用窓口", ""))
+            st.write("score:", d.get("score", 0))
 
     st.success("分析完了")
 
