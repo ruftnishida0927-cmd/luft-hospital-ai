@@ -44,9 +44,9 @@ def is_noise(url):
 
 
 # =========================
-# Google検索（簡易）
+# Google検索（軽量版）
 # =========================
-def search_urls(query):
+def search_urls(query, max_results=5):
     urls = []
     try:
         url = f"https://www.google.com/search?q={query}"
@@ -57,7 +57,7 @@ def search_urls(query):
             href = a.get("href")
             if href and "http" in href and "google" not in href:
                 urls.append(href)
-            if len(urls) >= 5:
+            if len(urls) >= max_results:
                 break
     except:
         pass
@@ -83,17 +83,14 @@ def extract_name(pattern, text):
 def extract_contact_from_html(html):
     data = {}
 
-    # 電話番号
     tel = re.search(r"\d{2,4}-\d{2,4}-\d{3,4}", html)
     if tel:
         data["代表電話"] = tel.group()
 
-    # 看護部長
     nurse = extract_name(r"看護部長[:：]?\s*([一-龥ぁ-んァ-ン]+)", html)
     if nurse:
         data["看護部長"] = nurse
 
-    # 事務長
     admin = extract_name(r"事務長[:：]?\s*([一-龥ぁ-んァ-ン]+)", html)
     if admin:
         data["事務長"] = admin
@@ -106,11 +103,8 @@ def extract_contact_from_html(html):
 # =========================
 def calculate_score(text, url):
     score = 0
-
-    # ドメインスコア
     score += get_domain_score(url)
 
-    # キーワードスコア
     for k, v in KEYWORDS.items():
         if k in text:
             score += v
@@ -137,24 +131,21 @@ def get_staff_contact_debug(hospital_name: str, area: str = "", hospital_info: d
         "page_details": []
     }
 
-    # =========================
-    # 検索クエリ（強化版）
-    # =========================
+    # 軽量化：クエリは4つに制限
     queries = [
         f"{hospital_name} {area} 看護部長",
         f"{hospital_name} {area} 事務長",
-        f"{hospital_name} {area} 病院概要",
-        f"{hospital_name} {area} 採用情報",
-        f"{hospital_name} 看護部 PDF"
+        f"{hospital_name} 病院概要",
+        f"{hospital_name} 採用情報"
     ]
 
     urls = []
     for q in queries:
-        urls.extend(search_urls(q))
+        urls.extend(search_urls(q, max_results=5))
         time.sleep(1)
 
-    # 重複削除＆制限
-    urls = list(set(urls))[:5]
+    # 軽量化：最大8件まで
+    urls = list(set(urls))[:8]
     debug["candidate_url_count"] = len(urls)
 
     best_score = 0
@@ -168,17 +159,16 @@ def get_staff_contact_debug(hospital_name: str, area: str = "", hospital_info: d
             html = res.text
 
             extracted = extract_contact_from_html(html)
-
             score = calculate_score(html, url)
-
-            # 抽出できたら加点
             score += len(extracted) * 3
 
-            debug["page_details"].append({
-                "url": url,
-                "score": score,
-                "data": extracted
-            })
+            # debugも制限
+            if len(debug["page_details"]) < 5:
+                debug["page_details"].append({
+                    "url": url,
+                    "score": score,
+                    "data": extracted
+                })
 
             if score > best_score:
                 best_score = score
@@ -193,8 +183,11 @@ def get_staff_contact_debug(hospital_name: str, area: str = "", hospital_info: d
 
 
 # =========================
-# 通常呼び出し
+# 通常呼び出し（DEBUG切替）
 # =========================
-def get_staff_contact(hospital_name: str, area: str = "", hospital_info: dict | None = None):
-    contact, _ = get_staff_contact_debug(hospital_name, area, hospital_info)
-    return contact
+def get_staff_contact(hospital_name: str, area: str = "", hospital_info: dict | None = None, debug_mode=False):
+    if debug_mode:
+        return get_staff_contact_debug(hospital_name, area, hospital_info)
+    else:
+        contact, _ = get_staff_contact_debug(hospital_name, area, hospital_info)
+        return contact
