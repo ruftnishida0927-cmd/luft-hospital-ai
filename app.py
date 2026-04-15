@@ -15,7 +15,9 @@ st.title("ルフト病院分析AI")
 
 hospital = st.text_input("病院名を入力")
 area = st.text_input("都道府県または市区町村（任意・精度向上用）")
-debug_mode = st.checkbox("デバッグ情報を表示する", value=True)
+
+# ★ここ変更（デフォルトOFF）
+debug_mode = st.checkbox("デバッグ情報を表示する", value=False)
 
 if st.button("分析開始"):
 
@@ -24,7 +26,7 @@ if st.button("分析開始"):
         st.stop()
 
     st.write("分析中...")
-    time.sleep(1)
+    time.sleep(0.5)  # ★軽量化（短縮）
 
     info = None
     candidates = []
@@ -62,6 +64,7 @@ if st.button("分析開始"):
         st.code(traceback.format_exc())
         st.stop()
 
+    # ★デバッグ表示（OFFなら出ない）
     if debug_mode and hospital_debug:
         st.subheader("病院検索デバッグ")
         st.write("入力病院名:", hospital_debug.get("input_name", ""))
@@ -101,7 +104,6 @@ if st.button("分析開始"):
 
     # ==============================
     # 2. 施設基準
-    # 病院特定が弱くてもデバッグのため進める
     # ==============================
     st.subheader("② 施設基準検索")
 
@@ -146,18 +148,18 @@ if st.button("分析開始"):
             st.write("additional_standards:", " / ".join(d.get("additional_standards", [])))
 
     # ==============================
-    # 病院特定が弱い場合はここで止める
+    # 精度チェック
     # ==============================
     if info.get("スコア", 0) < 70:
-        st.warning("病院特定の精度が低いため、看護配置・採用窓口・Excel出力は停止しました。施設基準デバッグ結果を確認してください。")
+        st.warning("病院特定の精度が低いため停止")
         st.stop()
 
     if info.get("地域", "不明") == "不明":
-        st.warning("地域が特定できていないため、看護配置・採用窓口・Excel出力は停止しました。")
+        st.warning("地域が特定できていないため停止")
         st.stop()
 
     if info.get("住所", "") == "":
-        st.warning("住所が特定できていないため、看護配置・採用窓口・Excel出力は停止しました。")
+        st.warning("住所が特定できていないため停止")
         st.stop()
 
     # ==============================
