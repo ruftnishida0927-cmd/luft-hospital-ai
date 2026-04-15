@@ -10,9 +10,6 @@ PORTAL_KEYWORDS = [
     "medicalnote",
     "qlife",
     "scuel",
-    "fdoc",
-    "epark",
-    "navitime"
 ]
 
 JOB_KEYWORDS = [
@@ -50,8 +47,7 @@ def classify_source(url):
 
 
 def is_hospital_candidate(url):
-    source = classify_source(url)
-    return source != "job"
+    return classify_source(url) != "job"
 
 
 def source_priority(source):
@@ -69,44 +65,16 @@ def source_priority(source):
 def build_queries(name, area=""):
     queries = []
 
-    base_terms = [
-        "病院",
-        "病院 住所",
-        "病院 アクセス",
-        "病院 所在地",
-        "医療法人",
-        "病院 外来",
-        "病院 入院"
-    ]
-
-    portal_sites = [
-        "byoinnavi.jp",
-        "caloo.jp",
-        "qlife.jp",
-        "medicalnote.jp",
-        "scuel.me"
-    ]
-
     if area:
-        for term in base_terms:
-            queries.append(f"{name} {area} {term}")
-
-        for site in portal_sites:
-            queries.append(f"site:{site} {name} {area}")
+        queries.append(f"{name} {area} 病院")
+        queries.append(f"{name} {area} 病院 住所")
     else:
-        for term in base_terms:
-            queries.append(f"{name} {term}")
+        queries.append(f"{name} 病院")
+        queries.append(f"{name} 病院 住所")
 
-        for site in portal_sites:
-            queries.append(f"site:{site} {name}")
-
-    # 公式系狙い
-    if area:
-        queries.append(f"{name} {area} site:or.jp")
-        queries.append(f"{name} {area} site:jp")
-    else:
-        queries.append(f"{name} site:or.jp")
-        queries.append(f"{name} site:jp")
+    # site系は2本だけに絞る
+    queries.append(f"site:byoinnavi.jp {name}")
+    queries.append(f"site:caloo.jp {name}")
 
     # 重複除去
     deduped = []
@@ -118,7 +86,7 @@ def build_queries(name, area=""):
         seen.add(q)
         deduped.append(q)
 
-    return deduped
+    return deduped[:4]
 
 
 def score_search_item(item, name, area=""):
@@ -137,9 +105,7 @@ def score_search_item(item, name, area=""):
         if area in title or area in url:
             score += 20
 
-    # ポータルや公式で病院っぽさを加点
-    keywords = ["病院", "医院", "クリニック", "医療法人", "診療科", "アクセス", "入院"]
-    for kw in keywords:
+    for kw in ["病院", "医院", "クリニック", "医療法人", "アクセス", "入院"]:
         if kw in title:
             score += 5
 
@@ -153,7 +119,7 @@ def search_hospital_candidate_urls(name, area=""):
     for query in queries:
         items = search_web(query)
 
-        for item in items:
+        for item in items[:5]:
             url = item.get("url", "")
             if not url:
                 continue
@@ -170,23 +136,17 @@ def search_hospital_candidate_urls(name, area=""):
                 "source": source,
             }
             scored_item["score"] = score_search_item(scored_item, name, area)
-
             results.append(scored_item)
 
-    # URL重複除去しつつ高得点を残す
     best_by_url = {}
 
     for item in results:
         url = item["url"]
 
-        if url not in best_by_url:
-            best_by_url[url] = item
-            continue
-
-        if item["score"] > best_by_url[url]["score"]:
+        if url not in best_by_url or item["score"] > best_by_url[url]["score"]:
             best_by_url[url] = item
 
     deduped = list(best_by_url.values())
     deduped.sort(key=lambda x: x.get("score", 0), reverse=True)
 
-    return deduped[:15]
+    return deduped[:8]
