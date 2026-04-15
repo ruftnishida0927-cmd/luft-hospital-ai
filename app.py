@@ -57,15 +57,13 @@ if st.button("分析開始"):
         st.write("最寄駅:", info.get("最寄駅", ""))
         st.write("病床数:", info.get("病床数", ""))
 
-    except Exception as e:
+    except Exception:
         st.error("病院検索でエラー")
         st.code(traceback.format_exc())
         st.stop()
 
-    # 病院検索デバッグ
     if debug_mode and hospital_debug:
         st.subheader("病院検索デバッグ")
-
         st.write("入力病院名:", hospital_debug.get("input_name", ""))
         st.write("入力エリア:", hospital_debug.get("input_area", ""))
         st.write("検索結果件数:", hospital_debug.get("search_results_count", 0))
@@ -73,40 +71,20 @@ if st.button("分析開始"):
         st.write("本文取得成功件数:", hospital_debug.get("page_fetch_success_count", 0))
         st.write("有効候補件数:", hospital_debug.get("valid_candidate_count", 0))
 
-        st.subheader("候補URL一覧")
-        for item in hospital_debug.get("candidate_sources", []):
-            st.write("-------------")
-            st.write("title:", item.get("title", ""))
-            st.write("source:", item.get("source", ""))
-            st.write("url:", item.get("url", ""))
-
-    # ==============================
-    # 候補病院
-    # ==============================
     st.subheader("候補病院")
     for i, cand in enumerate(candidates):
         st.write("-------------")
         if i == 0:
             st.write("★採用候補")
-
         st.write("スコア:", cand.get("スコア", 0))
         st.write("取得元:", cand.get("取得元", ""))
-
-        source_list = cand.get("取得元一覧", [])
-        if source_list:
-            st.write("取得元一覧:", " / ".join(source_list))
-
         st.write("病院名:", cand.get("病院名", ""))
         st.write("住所:", cand.get("住所", ""))
         st.write("地域:", cand.get("地域", ""))
         st.write("最寄駅:", cand.get("最寄駅", ""))
         st.write("病床数:", cand.get("病床数", ""))
-        st.write("診療科:", " / ".join(cand.get("診療科", [])))
         st.write("URL:", cand.get("URL", ""))
 
-    # ==============================
-    # 病院基本情報
-    # ==============================
     st.subheader("病院基本情報")
     st.write("病院名:", info.get("病院名", ""))
     st.write("病院種別:", info.get("病院種別", ""))
@@ -121,20 +99,9 @@ if st.button("分析開始"):
     st.write("取得元:", info.get("取得元", ""))
     st.write("URL:", info.get("URL", ""))
 
-    if info.get("スコア", 0) < 70:
-        st.error("病院特定の精度が低いため、後続処理を停止しました。")
-        st.stop()
-
-    if info.get("地域", "不明") == "不明":
-        st.error("地域が特定できていないため、後続処理を停止しました。")
-        st.stop()
-
-    if info.get("住所", "") == "":
-        st.error("住所が特定できていないため、後続処理を停止しました。")
-        st.stop()
-
     # ==============================
     # 2. 施設基準
+    # 病院特定が弱くてもデバッグのため進める
     # ==============================
     st.subheader("② 施設基準検索")
 
@@ -157,7 +124,7 @@ if st.button("分析開始"):
         for a in acquired:
             st.write("・", a)
 
-    except Exception as e:
+    except Exception:
         st.error("施設基準検索でエラー")
         st.code(traceback.format_exc())
         st.stop()
@@ -179,6 +146,21 @@ if st.button("分析開始"):
             st.write("additional_standards:", " / ".join(d.get("additional_standards", [])))
 
     # ==============================
+    # 病院特定が弱い場合はここで止める
+    # ==============================
+    if info.get("スコア", 0) < 70:
+        st.warning("病院特定の精度が低いため、看護配置・採用窓口・Excel出力は停止しました。施設基準デバッグ結果を確認してください。")
+        st.stop()
+
+    if info.get("地域", "不明") == "不明":
+        st.warning("地域が特定できていないため、看護配置・採用窓口・Excel出力は停止しました。")
+        st.stop()
+
+    if info.get("住所", "") == "":
+        st.warning("住所が特定できていないため、看護配置・採用窓口・Excel出力は停止しました。")
+        st.stop()
+
+    # ==============================
     # 3. 看護配置
     # ==============================
     st.subheader("③ 看護配置")
@@ -196,16 +178,10 @@ if st.button("分析開始"):
         st.write("夜間補助:", nursing.get("夜間補助", ""))
         st.write("看護必要度:", nursing.get("看護必要度", ""))
 
-    except Exception as e:
+    except Exception:
         st.error("看護配置でエラー")
         st.code(traceback.format_exc())
         st.stop()
-
-    if debug_mode and nursing_debug:
-        st.subheader("看護配置デバッグ")
-        st.write("base_standard:", nursing_debug.get("base_standard", ""))
-        st.write("base_family:", nursing_debug.get("base_family", ""))
-        st.write("facility_acquired:", " / ".join(nursing_debug.get("facility_acquired", [])))
 
     # ==============================
     # 4. 採用窓口
@@ -225,26 +201,10 @@ if st.button("分析開始"):
         st.write("代表電話:", contact.get("代表電話", ""))
         st.write("採用窓口:", contact.get("採用窓口", ""))
 
-    except Exception as e:
+    except Exception:
         st.error("採用窓口でエラー")
         st.code(traceback.format_exc())
         st.stop()
-
-    if debug_mode and contact_debug:
-        st.subheader("採用窓口デバッグ")
-        st.write("候補URL件数:", contact_debug.get("candidate_url_count", 0))
-        for d in contact_debug.get("page_details", []):
-            st.write("-------------")
-            st.write("title:", d.get("title", ""))
-            st.write("url:", d.get("url", ""))
-            st.write("fetched:", d.get("fetched", False))
-            st.write("text_len:", d.get("text_len", 0))
-            st.write("看護部長:", d.get("看護部長", ""))
-            st.write("事務長:", d.get("事務長", ""))
-            st.write("人事担当:", d.get("人事担当", ""))
-            st.write("代表電話:", d.get("代表電話", ""))
-            st.write("採用窓口:", d.get("採用窓口", ""))
-            st.write("score:", d.get("score", 0))
 
     st.success("分析完了")
 
