@@ -1,9 +1,13 @@
 # source_hospital.py
 # -*- coding: utf-8 -*-
 
-from urllib.parse import quote_plus
+import re
+from urllib.parse import quote_plus, urljoin
 
-from search_provider import search_web_with_meta, get_domain
+import requests
+from bs4 import BeautifulSoup
+
+from search_provider import search_web_with_meta, get_domain, HEADERS
 
 
 TRUSTED_DOMAIN_KEYWORDS = {
@@ -54,10 +58,6 @@ def build_hospital_queries(hospital_name: str):
 
 
 def build_direct_fallback_candidates(hospital_name: str):
-    """
-    検索エンジンが0件でも、最低限の候補URLを作る。
-    ここでは “候補” を作るだけで、特定はしない。
-    """
     q = quote_plus(hospital_name.strip())
     return [
         {
@@ -88,6 +88,201 @@ def build_direct_fallback_candidates(hospital_name: str):
             "domain": "qlife.jp",
         },
     ]
+
+
+def _safe_request_html(url: str, timeout: int = 8):
+    try:
+        r = requests.get(url, headers=HEADERS, timeout=timeout)
+        r.raise_for_status()
+        return r.text, None
+    except Exception as e:
+        return "", str(e)
+
+
+def _normalize_link(base_url: str, href: str) -> str:
+    if not href:
+        return ""
+    return urljoin(base_url, href.strip())
+
+
+def _is_likely_hospital_detail_url(url: str, hospital_name: str) -> bool:
+    if not url:
+        return False
+
+    domain = get_domain(url)
+
+    # 検索結果ページそのものは除外
+    if "freeword?q=" in url:
+        return False
+    if "/search/all" in url:
+        return False
+    if "search_hospital_result" in url:
+        return False
+
+    # DBサイトの個別詳細っぽいURLだけ残す
+    if "byoinnavi.jp/clinic/" in url:
+        return True
+    if "caloo.jp/hospitals/detail/" in url:
+        return True
+    if "qlife.jp/hospital_detail_" in url:
+        return True
+
+    return False
+
+
+def _extract_byoinnavi_detail_urls(search_url: str, hospital_name: str, max_urls: int = 3):
+    html_text, error = _safe_request_html(search_url)
+    debug = {
+        "source": "byoinnavi_detail_expand",
+        "search_url": search_url,
+        "status": "ok" if not error else "error",
+        "error": error or "",
+        "expanded_count": 0,
+    }
+    if error or not html_text:
+        return [], debug
+
+    soup = BeautifulSoup(html_text, "html.parser")
+    rows = []
+    seen = set()
+
+    for a in soup.select("a[href]"):
+        href = _normalize_link(search_url, a.get("href", ""))
+        title = a.get_text(" ", strip=True)
+
+        if not _is_likely_hospital_detail_url(href, hospital_name):
+            continue
+        if href in seen:
+            continue
+
+        seen.add(href)
+        rows.append({
+            "query": "direct_fallback_expanded",
+            "title": title or f"{hospital_name} - 病院なび詳細候補",
+            "url": href,
+            "snippet": "",
+            "provider": "direct_fallback_expanded",
+            "source_type": "medical-db",
+            "domain": get_domain(href),
+        })
+
+        if len(rows) >= max_urls:
+            break
+
+    debug["expanded_count"] = len(rows)
+    return rows, debug
+
+
+def _extract_caloo_detail_urls(search_url: str, hospital_name: str, max_urls: int = 3):
+    html_text, error = _safe_request_html(search_url)
+    debug = {
+        "source": "caloo_detail_expand",
+        "search_url": search_url,
+        "status": "ok" if not error else "error",
+        "error": error or "",
+        "expanded_count": 0,
+    }
+    if error or not html_text:
+        return [], debug
+
+    soup = BeautifulSoup(html_text, "html.parser")
+    rows = []
+    seen = set()
+
+    for a in soup.select("a[href]"):
+        href = _normalize_link(search_url, a.get("href", ""))
+        title = a.get_text(" ", strip=True)
+
+        if not _is_likely_hospital_detail_url(href, hospital_name):
+            continue
+        if href in seen:
+            continue
+
+        seen.add(href)
+        rows.append({
+            "query": "direct_fallback_expanded",
+            "title": title or f"{hospital_name} - Caloo詳細候補",
+            "url": href,
+            "snippet": "",
+            "provider": "direct_fallback_expanded",
+            "source_type": "medical-db",
+            "domain": get_domain(href),
+        })
+
+        if len(rows) >= max_urls:
+            break
+
+    debug["expanded_count"] = len(rows)
+    return rows, debug
+
+
+def _extract_qlife_detail_urls(search_url: str, hospital_name: str, max_urls: int = 3):
+    html_text, error = _safe_request_html(search_url)
+    debug = {
+        "source": "qlife_detail_expand",
+        "search_url": search_url,
+        "status": "ok" if not error else "error",
+        "error": error or "",
+        "expanded_count": 0,
+    }
+    if error or not html_text:
+        return [], debug
+
+    soup = BeautifulSoup(html_text, "html.parser")
+    rows = []
+    seen = set()
+
+    for a in soup.select("a[href]"):
+        href = _normalize_link(search_url, a.get("href", ""))
+        title = a.get_text(" ", strip=True)
+
+        if not _is_likely_hospital_detail_url(href, hospital_name):
+            continue
+        if href in seen:
+            continue
+
+        seen.add(href)
+        rows.append({
+            "query": "direct_fallback_expanded",
+            "title": title or f"{hospital_name} - QLife詳細候補",
+            "url": href,
+            "snippet": "",
+            "provider": "direct_fallback_expanded",
+            "source_type": "medical-db",
+            "domain": get_domain(href),
+        })
+
+        if len(rows) >= max_urls:
+            break
+
+    debug["expanded_count"] = len(rows)
+    return rows, debug
+
+
+def expand_direct_fallback_candidates(base_rows: list, hospital_name: str):
+    expanded = []
+    debug_rows = []
+
+    for row in base_rows:
+        url = row.get("url", "")
+        domain = row.get("domain", "")
+
+        if "byoinnavi.jp" in domain:
+            rows, dbg = _extract_byoinnavi_detail_urls(url, hospital_name, max_urls=3)
+            expanded.extend(rows)
+            debug_rows.append(dbg)
+
+        elif "caloo.jp" in domain:
+            rows, dbg = _extract_caloo_detail_urls(url, hospital_name, max_urls=3)
+            expanded.extend(rows)
+            debug_rows.append(dbg)
+
+        elif "qlife.jp" in domain:
+            rows, dbg = _extract_qlife_detail_urls(url, hospital_name, max_urls=3)
+            expanded.extend(rows)
+            debug_rows.append(dbg)
+
+    return expanded, debug_rows
 
 
 def collect_hospital_candidate_urls(hospital_name: str, debug: bool = False, max_urls: int = 10):
@@ -128,28 +323,38 @@ def collect_hospital_candidate_urls(hospital_name: str, debug: bool = False, max
                     "debug": query_debug,
                 }
 
-    # 検索エンジンが死んでいた時のみ fallback 候補を追加
+    # 検索エンジンが死んでいる時のみ direct fallback
     if not rows:
         fallback_rows = build_direct_fallback_candidates(hospital_name)
-        for r in fallback_rows:
+        expanded_rows, expand_debug = expand_direct_fallback_candidates(fallback_rows, hospital_name)
+
+        query_debug.append({
+            "query": "direct_fallback_base",
+            "provider_debug": [{
+                "provider": "direct_fallback_base",
+                "status": "used",
+                "result_count": len(fallback_rows),
+                "error": "",
+                "http_status": None,
+                "sample_url": fallback_rows[0]["url"] if fallback_rows else "",
+            }],
+            "result_count_after_merge": len(fallback_rows),
+        })
+
+        query_debug.append({
+            "query": "direct_fallback_expanded",
+            "provider_debug": expand_debug,
+            "result_count_after_merge": len(expanded_rows),
+        })
+
+        candidate_source = expanded_rows if expanded_rows else fallback_rows
+
+        for r in candidate_source:
             url = r.get("url", "")
             if not url or url in seen:
                 continue
             seen.add(url)
             rows.append(r)
-
-        query_debug.append({
-            "query": "direct_fallback",
-            "provider_debug": [{
-                "provider": "direct_fallback",
-                "status": "used",
-                "result_count": len(rows),
-                "error": "",
-                "http_status": None,
-                "sample_url": rows[0]["url"] if rows else "",
-            }],
-            "result_count_after_merge": len(rows),
-        })
 
     return {
         "rows": rows[:max_urls],
