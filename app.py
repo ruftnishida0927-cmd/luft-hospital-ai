@@ -13,6 +13,7 @@ st.set_page_config(
 )
 
 st.title("ルフト病院分析AI")
+st.error("BUILD MARKER: 2026-04-16 11:20")
 st.caption("まずは「病院検索 → 病院特定」を安定化する版")
 
 
