@@ -3,7 +3,7 @@
 
 import re
 import html
-from urllib.parse import quote_plus, urljoin, unquote
+from urllib.parse import quote_plus, urljoin
 
 import requests
 from bs4 import BeautifulSoup
@@ -145,16 +145,6 @@ def _is_search_result_page(url: str) -> bool:
     return any(p in url for p in patterns)
 
 
-def _detail_patterns_for_domain(domain: str):
-    if "byoinnavi.jp" in domain:
-        return [r"https?://byoinnavi\.jp/clinic/\d+", r"/clinic/\d+"]
-    if "caloo.jp" in domain:
-        return [r"https?://caloo\.jp/hospitals/detail/[A-Za-z0-9]+", r"/hospitals/detail/[A-Za-z0-9]+"]
-    if "qlife.jp" in domain:
-        return [r"https?://(?:www\.)?qlife\.jp/hospital_detail_\d+", r"/hospital_detail_\d+"]
-    return []
-
-
 def _is_likely_hospital_detail_url(url: str) -> bool:
     if not url:
         return False
@@ -170,121 +160,148 @@ def _is_likely_hospital_detail_url(url: str) -> bool:
     return any(p in url for p in detail_patterns)
 
 
-def _extract_candidate_texts(a_tag):
-    texts = []
-
-    own_text = a_tag.get_text(" ", strip=True)
-    if own_text:
-        texts.append(own_text)
-
-    title_attr = a_tag.get("title", "")
-    if title_attr:
-        texts.append(title_attr)
-
-    aria_label = a_tag.get("aria-label", "")
-    if aria_label:
-        texts.append(aria_label)
-
-    parent = a_tag.parent
-    if parent:
-        parent_text = parent.get_text(" ", strip=True)
-        if parent_text:
-            texts.append(parent_text)
-
-    return texts
+def _detail_patterns_for_domain(domain: str):
+    if "byoinnavi.jp" in domain:
+        return [
+            r"https?://byoinnavi\.jp/clinic/\d+",
+            r"/clinic/\d+",
+        ]
+    if "caloo.jp" in domain:
+        return [
+            r"https?://caloo\.jp/hospitals/detail/[A-Za-z0-9]+",
+            r"/hospitals/detail/[A-Za-z0-9]+",
+        ]
+    if "qlife.jp" in domain:
+        return [
+            r"https?://(?:www\.)?qlife\.jp/hospital_detail_\d+",
+            r"/hospital_detail_\d+",
+        ]
+    return []
 
 
-def _extract_anchor_detail_urls(search_url: str, hospital_name: str, soup: BeautifulSoup, max_urls: int = 10):
+def _score_detail_candidate(url: str, title: str, context: str, hospital_name: str) -> int:
+    score = 0
+
+    if _is_likely_hospital_detail_url(url):
+        score += 5
+
+    if title and _name_matches(title, hospital_name):
+        score += 6
+
+    if context and _name_matches(context, hospital_name):
+        score += 5
+
+    if "病院" in (title or ""):
+        score += 1
+
+    if "病院" in (context or ""):
+        score += 1
+
+    return score
+
+
+def _extract_anchor_candidates(search_url: str, hospital_name: str, soup: BeautifulSoup, max_urls: int = 20):
     rows = []
     seen = set()
-    matched_texts = []
 
     for a in soup.select("a[href]"):
         href = _normalize_link(search_url, a.get("href", ""))
-        if not href:
+        if not href or href in seen:
             continue
 
         if not _is_likely_hospital_detail_url(href):
             continue
 
-        candidate_texts = _extract_candidate_texts(a)
-        text_match = any(_name_matches(t, hospital_name) for t in candidate_texts)
-
-        # URLに病院名がなくても、anchor近辺テキストが一致すれば採用
-        if not text_match:
-            continue
-
-        if href in seen:
-            continue
-
         seen.add(href)
+
         title = a.get_text(" ", strip=True) or a.get("title", "").strip()
-        if not title:
-            title = f"{hospital_name} 詳細候補"
+        parent_text = a.parent.get_text(" ", strip=True) if a.parent else ""
+        context = f"{title} {parent_text}".strip()
+
+        score = _score_detail_candidate(
+            url=href,
+            title=title,
+            context=context,
+            hospital_name=hospital_name,
+        )
 
         rows.append({
-            "query": "direct_fallback_expanded",
-            "title": title,
             "url": href,
-            "snippet": "",
+            "title": title or f"{hospital_name} 詳細候補",
+            "context": context[:300],
+            "score": score,
             "provider": "direct_fallback_expanded_anchor",
-            "source_type": "medical-db",
-            "domain": get_domain(href),
         })
-        matched_texts.append(title)
 
         if len(rows) >= max_urls:
             break
 
-    return rows, matched_texts
+    return rows
 
 
-def _extract_regex_detail_urls(search_url: str, hospital_name: str, html_text: str, domain: str, max_urls: int = 10):
-    patterns = _detail_patterns_for_domain(domain)
-    found = []
+def _extract_regex_candidates(search_url: str, hospital_name: str, html_text: str, domain: str, max_urls: int = 20):
+    rows = []
     seen = set()
 
     normalized_html = html.unescape(html_text)
+    patterns = _detail_patterns_for_domain(domain)
 
     for pat in patterns:
         for m in re.finditer(pat, normalized_html):
             raw_url = m.group(0)
-            full_url = _normalize_link(search_url, raw_url)
+            href = _normalize_link(search_url, raw_url)
 
-            if not _is_likely_hospital_detail_url(full_url):
-                continue
-            if full_url in seen:
+            if not href or href in seen:
                 continue
 
-            # 近傍テキストに病院名があるか確認
-            start = max(0, m.start() - 250)
-            end = min(len(normalized_html), m.end() + 250)
+            if not _is_likely_hospital_detail_url(href):
+                continue
+
+            seen.add(href)
+
+            start = max(0, m.start() - 300)
+            end = min(len(normalized_html), m.end() + 300)
             context = normalized_html[start:end]
 
-            if not _name_matches(context, hospital_name):
-                # 近傍テキストで一致しなくても、一旦候補として少数だけ残す
-                # ただし domainごとに最初の1件までに抑える
-                if len(found) >= 1:
-                    continue
+            score = _score_detail_candidate(
+                url=href,
+                title="",
+                context=context,
+                hospital_name=hospital_name,
+            )
 
-            seen.add(full_url)
-            found.append({
-                "query": "direct_fallback_expanded",
+            rows.append({
+                "url": href,
                 "title": f"{hospital_name} 詳細候補",
-                "url": full_url,
-                "snippet": "",
+                "context": context[:300],
+                "score": score,
                 "provider": "direct_fallback_expanded_regex",
-                "source_type": "medical-db",
-                "domain": get_domain(full_url),
             })
 
-            if len(found) >= max_urls:
+            if len(rows) >= max_urls:
                 break
 
-        if len(found) >= max_urls:
+        if len(rows) >= max_urls:
             break
 
-    return found
+    return rows
+
+
+def _merge_scored_candidates(candidates: list, max_urls: int = 5):
+    if not candidates:
+        return []
+
+    merged = {}
+    for row in candidates:
+        url = row["url"]
+        if url not in merged:
+            merged[url] = row
+        else:
+            if row["score"] > merged[url]["score"]:
+                merged[url] = row
+
+    result = sorted(merged.values(), key=lambda x: x["score"], reverse=True)
+    return result[:max_urls]
 
 
 def _expand_one_search_page(search_url: str, hospital_name: str, site_name: str, max_urls: int = 5):
@@ -301,7 +318,6 @@ def _expand_one_search_page(search_url: str, hospital_name: str, site_name: str,
         "regex_found_urls": [],
         "final_expanded_count": 0,
         "final_expanded_urls": [],
-        "matched_anchor_texts": [],
     }
 
     if error or not html_text:
@@ -310,41 +326,43 @@ def _expand_one_search_page(search_url: str, hospital_name: str, site_name: str,
     soup = BeautifulSoup(html_text, "html.parser")
     domain = get_domain(search_url)
 
-    anchor_rows, matched_anchor_texts = _extract_anchor_detail_urls(
+    anchor_candidates = _extract_anchor_candidates(
         search_url=search_url,
         hospital_name=hospital_name,
         soup=soup,
-        max_urls=max_urls,
+        max_urls=20,
     )
-    regex_rows = _extract_regex_detail_urls(
+
+    regex_candidates = _extract_regex_candidates(
         search_url=search_url,
         hospital_name=hospital_name,
         html_text=html_text,
         domain=domain,
-        max_urls=max_urls,
+        max_urls=20,
     )
 
-    merged = []
-    seen = set()
+    final_candidates = _merge_scored_candidates(anchor_candidates + regex_candidates, max_urls=max_urls)
 
-    for row in anchor_rows + regex_rows:
-        u = row.get("url", "")
-        if not u or u in seen:
-            continue
-        seen.add(u)
-        merged.append(row)
-        if len(merged) >= max_urls:
-            break
+    debug["anchor_found_count"] = len(anchor_candidates)
+    debug["anchor_found_urls"] = [r["url"] for r in anchor_candidates[:10]]
+    debug["regex_found_count"] = len(regex_candidates)
+    debug["regex_found_urls"] = [r["url"] for r in regex_candidates[:10]]
+    debug["final_expanded_count"] = len(final_candidates)
+    debug["final_expanded_urls"] = [r["url"] for r in final_candidates[:10]]
 
-    debug["anchor_found_count"] = len(anchor_rows)
-    debug["anchor_found_urls"] = [r["url"] for r in anchor_rows]
-    debug["regex_found_count"] = len(regex_rows)
-    debug["regex_found_urls"] = [r["url"] for r in regex_rows]
-    debug["final_expanded_count"] = len(merged)
-    debug["final_expanded_urls"] = [r["url"] for r in merged]
-    debug["matched_anchor_texts"] = matched_anchor_texts[:10]
+    rows = []
+    for row in final_candidates:
+        rows.append({
+            "query": "direct_fallback_expanded",
+            "title": row["title"],
+            "url": row["url"],
+            "snippet": "",
+            "provider": row["provider"],
+            "source_type": "medical-db",
+            "domain": get_domain(row["url"]),
+        })
 
-    return merged, debug
+    return rows, debug
 
 
 def expand_direct_fallback_candidates(base_rows: list, hospital_name: str):
@@ -374,7 +392,6 @@ def expand_direct_fallback_candidates(base_rows: list, hospital_name: str):
                 "regex_found_urls": [],
                 "final_expanded_count": 0,
                 "final_expanded_urls": [],
-                "matched_anchor_texts": [],
             }
 
         debug_rows.append(dbg)
@@ -396,7 +413,6 @@ def collect_hospital_candidate_urls(hospital_name: str, debug: bool = False, max
     seen = set()
     query_debug = []
 
-    # 1) 通常検索
     for q in queries:
         results, metas = search_web_with_meta(q, max_results=4)
 
@@ -428,7 +444,6 @@ def collect_hospital_candidate_urls(hospital_name: str, debug: bool = False, max
                     "debug": query_debug,
                 }
 
-    # 2) 通常検索がダメなら fallback
     if not rows:
         fallback_rows = build_direct_fallback_candidates(hospital_name)
         expanded_rows, expand_debug = expand_direct_fallback_candidates(fallback_rows, hospital_name)
