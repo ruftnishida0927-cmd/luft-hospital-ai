@@ -1,9 +1,9 @@
 # source_hospital.py
 # -*- coding: utf-8 -*-
 
-from urllib.parse import urlparse
+from urllib.parse import quote_plus
 
-from search_provider import search_web, get_domain
+from search_provider import search_web_with_meta, get_domain
 
 
 TRUSTED_DOMAIN_KEYWORDS = {
@@ -44,11 +44,7 @@ def classify_source(url: str) -> str:
 
 
 def build_hospital_queries(hospital_name: str):
-    """
-    最大4本まで。Render無料枠を考慮して厳しめに制限。
-    """
     hospital_name = hospital_name.strip()
-
     return [
         f"{hospital_name} 病院 住所",
         f"{hospital_name} 病床数 診療科",
@@ -57,14 +53,58 @@ def build_hospital_queries(hospital_name: str):
     ]
 
 
+def build_direct_fallback_candidates(hospital_name: str):
+    """
+    検索エンジンが0件でも、最低限の候補URLを作る。
+    ここでは “候補” を作るだけで、特定はしない。
+    """
+    q = quote_plus(hospital_name.strip())
+    return [
+        {
+            "query": "direct_fallback",
+            "title": f"{hospital_name} - 病院なび 検索候補",
+            "url": f"https://byoinnavi.jp/freeword?q={q}",
+            "snippet": "",
+            "provider": "direct_fallback",
+            "source_type": "medical-db",
+            "domain": "byoinnavi.jp",
+        },
+        {
+            "query": "direct_fallback",
+            "title": f"{hospital_name} - Caloo 検索候補",
+            "url": f"https://caloo.jp/search/all?s={q}",
+            "snippet": "",
+            "provider": "direct_fallback",
+            "source_type": "medical-db",
+            "domain": "caloo.jp",
+        },
+        {
+            "query": "direct_fallback",
+            "title": f"{hospital_name} - QLife 検索候補",
+            "url": f"https://www.qlife.jp/search_hospital_result?keyword={q}",
+            "snippet": "",
+            "provider": "direct_fallback",
+            "source_type": "medical-db",
+            "domain": "qlife.jp",
+        },
+    ]
+
+
 def collect_hospital_candidate_urls(hospital_name: str, debug: bool = False, max_urls: int = 10):
     queries = build_hospital_queries(hospital_name)
 
     rows = []
     seen = set()
+    query_debug = []
 
     for q in queries:
-        results = search_web(q, max_results=4, debug=debug)
+        results, metas = search_web_with_meta(q, max_results=4)
+
+        query_debug.append({
+            "query": q,
+            "provider_debug": metas,
+            "result_count_after_merge": len(results),
+        })
 
         for r in results:
             url = r.get("url", "")
@@ -83,6 +123,35 @@ def collect_hospital_candidate_urls(hospital_name: str, debug: bool = False, max
             })
 
             if len(rows) >= max_urls:
-                return rows
+                return {
+                    "rows": rows,
+                    "debug": query_debug,
+                }
 
-    return rows
+    # 検索エンジンが死んでいた時のみ fallback 候補を追加
+    if not rows:
+        fallback_rows = build_direct_fallback_candidates(hospital_name)
+        for r in fallback_rows:
+            url = r.get("url", "")
+            if not url or url in seen:
+                continue
+            seen.add(url)
+            rows.append(r)
+
+        query_debug.append({
+            "query": "direct_fallback",
+            "provider_debug": [{
+                "provider": "direct_fallback",
+                "status": "used",
+                "result_count": len(rows),
+                "error": "",
+                "http_status": None,
+                "sample_url": rows[0]["url"] if rows else "",
+            }],
+            "result_count_after_merge": len(rows),
+        })
+
+    return {
+        "rows": rows[:max_urls],
+        "debug": query_debug,
+    }
