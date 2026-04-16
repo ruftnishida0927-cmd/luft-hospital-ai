@@ -2,11 +2,11 @@
 # -*- coding: utf-8 -*-
 
 import re
-from collections import defaultdict
+from collections import Counter
 
 from source_hospital import collect_hospital_candidate_urls
 from search_provider import fetch_page_text
-from extractors import extract_basic_facts
+from extractors import extract_basic_facts, is_generic_ambiguous_hospital_name
 
 
 def _normalize_name(name: str) -> str:
@@ -32,9 +32,9 @@ def _safe_contains_name(text: str, hospital_name: str) -> bool:
 
 def _source_score(source_type: str) -> int:
     table = {
-        "official": 5,
-        "public": 4,
-        "medical-db": 3,
+        "official": 6,
+        "public": 5,
+        "medical-db": 2,
         "other": 1,
         "unknown": 0,
     }
@@ -49,7 +49,7 @@ def _fact_score(facts: dict) -> int:
     if facts.get("region") and facts["region"] != "不明":
         score += 2
     if facts.get("nearest_station") and facts["nearest_station"] != "不明":
-        score += 2
+        score += 1
     if facts.get("bed_count") and facts["bed_count"] != "不明":
         score += 2
     if facts.get("departments") and facts["departments"] != "不明":
@@ -59,9 +59,7 @@ def _fact_score(facts: dict) -> int:
 
 
 def _title_score(title: str, hospital_name: str) -> int:
-    if _safe_contains_name(title, hospital_name):
-        return 6
-    return 0
+    return 6 if _safe_contains_name(title, hospital_name) else 0
 
 
 def _body_name_score(text: str, hospital_name: str) -> int:
@@ -70,7 +68,7 @@ def _body_name_score(text: str, hospital_name: str) -> int:
 
     score = 0
     if _safe_contains_name(text[:3000], hospital_name):
-        score += 4
+        score += 3
     if _safe_contains_name(text[:1000], hospital_name):
         score += 2
     return score
@@ -90,7 +88,6 @@ def _build_candidate_record(row: dict, hospital_name: str, debug: bool = False) 
     score += _body_name_score(text, hospital_name)
     score += _fact_score(facts)
 
-    # 「病院」文字がまったくなく、かつ本文も極端に薄い場合は減点
     if "病院" not in title and "病院" not in text[:2000]:
         score -= 3
 
@@ -103,15 +100,37 @@ def _build_candidate_record(row: dict, hospital_name: str, debug: bool = False) 
         "domain": row.get("domain", ""),
         "score": score,
         "facts": facts,
-        "text_preview": text[:800] if debug else "",
+        "text_preview": text[:1200] if debug else "",
     }
 
 
+def _has_strong_name_match(candidate: dict, hospital_name: str) -> bool:
+    if _safe_contains_name(candidate.get("title", ""), hospital_name):
+        return True
+    if _safe_contains_name(candidate.get("text_preview", ""), hospital_name):
+        return True
+    if _safe_contains_name(candidate.get("facts", {}).get("name_candidate", ""), hospital_name):
+        return True
+    return False
+
+
+def _pref_consensus(candidates: list) -> dict:
+    prefs = []
+    for c in candidates[:5]:
+        region = c.get("facts", {}).get("region", "不明")
+        if region != "不明":
+            pref = re.sub(r"(市|区|町|村).*$", "", region)
+            prefs.append(pref)
+
+    if not prefs:
+        return {"top_pref": "不明", "count": 0, "all": []}
+
+    counter = Counter(prefs)
+    top_pref, count = counter.most_common(1)[0]
+    return {"top_pref": top_pref, "count": count, "all": prefs}
+
+
 def _merge_best_candidate(candidates: list, hospital_name: str) -> dict:
-    """
-    URL単位の候補から最良の1件を選ぶ。
-    ここでは大胆な統合はせず、まず誤判定を減らすため保守的に選ぶ。
-    """
     if not candidates:
         return {
             "status": "not_found",
@@ -121,27 +140,38 @@ def _merge_best_candidate(candidates: list, hospital_name: str) -> dict:
 
     sorted_rows = sorted(candidates, key=lambda x: x["score"], reverse=True)
     best = sorted_rows[0]
-
-    # 2位との差が小さい場合は曖昧扱い
     second_score = sorted_rows[1]["score"] if len(sorted_rows) >= 2 else -999
     diff = best["score"] - second_score
 
-    # 最低限の信頼条件
-    has_name = (
-        _safe_contains_name(best.get("title", ""), hospital_name) or
-        _safe_contains_name(best.get("text_preview", ""), hospital_name) or
-        _safe_contains_name(str(best.get("facts", {}).get("name_candidate", "")), hospital_name)
-    )
+    has_name = _has_strong_name_match(best, hospital_name)
     has_address = best.get("facts", {}).get("address", "不明") != "不明"
+    best_source = best.get("source_type", "unknown")
+    ambiguous_name = is_generic_ambiguous_hospital_name(hospital_name)
 
-    if best["score"] < 10:
+    pref_info = _pref_consensus(sorted_rows)
+    pref_consensus_count = pref_info["count"]
+
+    status = "ok"
+
+    # 基本条件
+    if best["score"] < 11:
         status = "low_confidence"
-    elif diff <= 1 and not has_address:
-        status = "ambiguous"
+
+    # 病院名一致や住所が弱い
     elif not has_name and not has_address:
         status = "low_confidence"
-    else:
-        status = "ok"
+
+    # genericな病院名なのに official/public でない場合は厳しくする
+    elif ambiguous_name and best_source not in ["official", "public"]:
+        status = "ambiguous"
+
+    # 上位候補で都道府県コンセンサスが取れていない場合は曖昧
+    elif ambiguous_name and pref_consensus_count <= 1:
+        status = "ambiguous"
+
+    # 1位と2位が僅差なら曖昧
+    elif diff <= 1:
+        status = "ambiguous"
 
     selected = {
         "hospital_name_input": hospital_name,
@@ -161,18 +191,11 @@ def _merge_best_candidate(candidates: list, hospital_name: str) -> dict:
         "status": status,
         "selected": selected,
         "candidates": sorted_rows[:8],
+        "consensus": pref_info,
     }
 
 
 def identify_hospital_basic(hospital_name: str, debug: bool = False) -> dict:
-    """
-    ステップ:
-    ① 候補URL収集
-    ② 本文取得
-    ③ 基本情報抽出
-    ④ スコアリング
-    ⑤ 病院特定
-    """
     url_rows = collect_hospital_candidate_urls(hospital_name, debug=debug, max_urls=10)
 
     if not url_rows:
