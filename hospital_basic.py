@@ -153,23 +153,14 @@ def _merge_best_candidate(candidates: list, hospital_name: str) -> dict:
 
     status = "ok"
 
-    # 基本条件
     if best["score"] < 11:
         status = "low_confidence"
-
-    # 病院名一致や住所が弱い
     elif not has_name and not has_address:
         status = "low_confidence"
-
-    # genericな病院名なのに official/public でない場合は厳しくする
     elif ambiguous_name and best_source not in ["official", "public"]:
         status = "ambiguous"
-
-    # 上位候補で都道府県コンセンサスが取れていない場合は曖昧
     elif ambiguous_name and pref_consensus_count <= 1:
         status = "ambiguous"
-
-    # 1位と2位が僅差なら曖昧
     elif diff <= 1:
         status = "ambiguous"
 
@@ -196,7 +187,9 @@ def _merge_best_candidate(candidates: list, hospital_name: str) -> dict:
 
 
 def identify_hospital_basic(hospital_name: str, debug: bool = False) -> dict:
-    url_rows = collect_hospital_candidate_urls(hospital_name, debug=debug, max_urls=10)
+    collected = collect_hospital_candidate_urls(hospital_name, debug=debug, max_urls=10)
+    url_rows = collected.get("rows", [])
+    query_debug = collected.get("debug", [])
 
     if not url_rows:
         return {
@@ -204,7 +197,8 @@ def identify_hospital_basic(hospital_name: str, debug: bool = False) -> dict:
             "selected": None,
             "candidates": [],
             "debug_info": {
-                "message": "候補URLが取得できませんでした。"
+                "message": "候補URLが取得できませんでした。",
+                "query_debug": query_debug,
             } if debug else {}
         }
 
@@ -225,9 +219,11 @@ def identify_hospital_basic(hospital_name: str, debug: bool = False) -> dict:
 
     if debug:
         merged["debug_info"] = {
+            "message": "候補URLは取得済みです。",
             "collected_url_count": len(url_rows),
             "scored_candidate_count": len(candidate_rows),
             "errors": errors,
+            "query_debug": query_debug,
         }
 
     return merged
