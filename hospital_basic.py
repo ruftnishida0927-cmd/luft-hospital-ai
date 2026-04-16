@@ -74,6 +74,21 @@ def _body_name_score(text: str, hospital_name: str) -> int:
     return score
 
 
+def _search_page_penalty(url: str) -> int:
+    if not url:
+        return 0
+
+    penalties = [
+        "freeword?q=",
+        "/search/all",
+        "search_hospital_result",
+    ]
+    if any(p in url for p in penalties):
+        return -6
+
+    return 0
+
+
 def _build_candidate_record(row: dict, hospital_name: str, debug: bool = False) -> dict:
     url = row.get("url", "")
     title = row.get("title", "")
@@ -87,6 +102,7 @@ def _build_candidate_record(row: dict, hospital_name: str, debug: bool = False) 
     score += _title_score(title, hospital_name)
     score += _body_name_score(text, hospital_name)
     score += _fact_score(facts)
+    score += _search_page_penalty(url)
 
     if "病院" not in title and "病院" not in text[:2000]:
         score -= 3
