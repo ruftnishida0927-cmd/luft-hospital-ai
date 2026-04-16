@@ -45,6 +45,7 @@ def _normalize_url(url: str) -> str:
         return ""
     url = url.strip()
 
+    # DuckDuckGo redirect
     if "duckduckgo.com/l/?" in url:
         try:
             parsed = urlparse(url)
@@ -88,21 +89,38 @@ def _is_valid_candidate_url(url: str) -> bool:
     return url.startswith("http://") or url.startswith("https://")
 
 
-def _request_html(url: str, timeout: int = 8) -> str:
+def _request_html(url: str, timeout: int = 8):
     r = requests.get(url, headers=HEADERS, timeout=timeout)
     r.raise_for_status()
-    return r.text
+    return r.text, r.status_code, dict(r.headers)
 
 
 def _search_duckduckgo(query: str, max_results: int = 5):
     results = []
+    meta = {
+        "provider": "duckduckgo",
+        "query": query,
+        "status": "unknown",
+        "result_count": 0,
+        "error": "",
+        "http_status": None,
+        "sample_url": "",
+    }
+
     url = f"https://html.duckduckgo.com/html/?q={quote_plus(query)}"
 
     try:
-        html_text = _request_html(url, timeout=8)
-        soup = BeautifulSoup(html_text, "html.parser")
+        html_text, status_code, headers = _request_html(url, timeout=8)
+        meta["http_status"] = status_code
 
-        for a in soup.select("a.result__a"):
+        soup = BeautifulSoup(html_text, "html.parser")
+        anchors = soup.select("a.result__a")
+
+        if not anchors:
+            meta["status"] = "ok_but_no_selector_match"
+            return results, meta
+
+        for a in anchors:
             href = a.get("href", "").strip()
             title = _clean_inline_text(a.get_text(" ", strip=True))
             href = _normalize_url(href)
@@ -126,21 +144,44 @@ def _search_duckduckgo(query: str, max_results: int = 5):
 
             if len(results) >= max_results:
                 break
-    except Exception:
-        pass
 
-    return results
+        meta["status"] = "ok"
+        meta["result_count"] = len(results)
+        meta["sample_url"] = results[0]["url"] if results else ""
+
+    except Exception as e:
+        meta["status"] = "error"
+        meta["error"] = str(e)
+
+    return results, meta
 
 
 def _search_bing(query: str, max_results: int = 5):
     results = []
+    meta = {
+        "provider": "bing",
+        "query": query,
+        "status": "unknown",
+        "result_count": 0,
+        "error": "",
+        "http_status": None,
+        "sample_url": "",
+    }
+
     url = f"https://www.bing.com/search?q={quote_plus(query)}&setlang=ja-JP"
 
     try:
-        html_text = _request_html(url, timeout=8)
-        soup = BeautifulSoup(html_text, "html.parser")
+        html_text, status_code, headers = _request_html(url, timeout=8)
+        meta["http_status"] = status_code
 
-        for li in soup.select("li.b_algo"):
+        soup = BeautifulSoup(html_text, "html.parser")
+        items = soup.select("li.b_algo")
+
+        if not items:
+            meta["status"] = "ok_but_no_selector_match"
+            return results, meta
+
+        for li in items:
             a = li.select_one("h2 a")
             if not a:
                 continue
@@ -162,15 +203,22 @@ def _search_bing(query: str, max_results: int = 5):
 
             if len(results) >= max_results:
                 break
-    except Exception:
-        pass
 
-    return results
+        meta["status"] = "ok"
+        meta["result_count"] = len(results)
+        meta["sample_url"] = results[0]["url"] if results else ""
+
+    except Exception as e:
+        meta["status"] = "error"
+        meta["error"] = str(e)
+
+    return results, meta
 
 
-def search_web(query: str, max_results: int = 6, debug: bool = False):
+def search_web_with_meta(query: str, max_results: int = 6):
     collected = []
     seen = set()
+    metas = []
 
     providers = [
         _search_duckduckgo,
@@ -179,28 +227,39 @@ def search_web(query: str, max_results: int = 6, debug: bool = False):
 
     for fn in providers:
         try:
-            partial = fn(query, max_results=max_results)
+            partial, meta = fn(query, max_results=max_results)
+            metas.append(meta)
+
             for row in partial:
                 url = row.get("url", "")
                 if not url or url in seen:
                     continue
                 seen.add(url)
                 collected.append(row)
-                if len(collected) >= max_results:
-                    return collected
-        except Exception:
-            continue
 
-    return collected[:max_results]
+                if len(collected) >= max_results:
+                    break
+        except Exception as e:
+            metas.append({
+                "provider": getattr(fn, "__name__", "unknown"),
+                "query": query,
+                "status": "error",
+                "result_count": 0,
+                "error": str(e),
+                "http_status": None,
+                "sample_url": "",
+            })
+
+    return collected[:max_results], metas
+
+
+def search_web(query: str, max_results: int = 6, debug: bool = False):
+    results, metas = search_web_with_meta(query, max_results=max_results)
+    return results
 
 
 @lru_cache(maxsize=128)
 def fetch_page_text(url: str, timeout: int = 8, max_chars: int = 25000) -> str:
-    """
-    本文取得専用
-    - 改行をなるべく保持
-    - 住所や所在地抽出で使える形を優先
-    """
     try:
         r = requests.get(url, headers=HEADERS, timeout=timeout)
         r.raise_for_status()
