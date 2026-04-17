@@ -1,193 +1,59 @@
+# staff_contact.py
 # -*- coding: utf-8 -*-
-import requests
-from bs4 import BeautifulSoup
-import re
-import time
 
-# =========================
-# 設定
-# =========================
-HEADERS = {"User-Agent": "Mozilla/5.0"}
-
-KEYWORDS = {
-    "看護部長": 5,
-    "事務長": 5,
-    "採用担当": 4,
-    "人事": 3,
-    "TEL": 3,
-    "電話": 3
-}
-
-NG_WORDS = ["blog", "note", "ameblo", "yahoo", "rakuten"]
+from search_provider import fetch_page_text
+from extractors import extract_contact_lines, extract_phone_numbers, extract_emails
 
 
-# =========================
-# ドメイン評価
-# =========================
-def get_domain_score(url):
-    if "go.jp" in url:
-        return 5
-    if "ac.jp" in url:
-        return 4
-    if "hospital" in url or "hp." in url:
-        return 3
-    if "recruit" in url:
-        return 2
-    return 1
+def analyze_staff_contacts(url_rows: list[dict], debug: bool = False) -> dict:
+    """
+    recruit/contactカテゴリのURL群から、採用窓口候補を抽出
+    人名断定ではなく、窓口候補・部署候補・連絡先候補を出す
+    """
+    page_results = []
+    all_contact_lines = []
+    all_phones = []
+    all_emails = []
 
+    for row in url_rows[:8]:
+        url = row.get("url", "")
+        text = fetch_page_text(url, timeout=15, max_chars=50000)
 
-# =========================
-# ノイズ除去
-# =========================
-def is_noise(url):
-    return any(n in url for n in NG_WORDS)
+        contact_lines = extract_contact_lines(text)
+        phones = extract_phone_numbers(text)
+        emails = extract_emails(text)
 
+        page_results.append({
+            "url": url,
+            "contact_line_count": len(contact_lines),
+            "phones": phones[:10],
+            "emails": emails[:10],
+            "contact_lines": contact_lines[:20],
+        })
 
-# =========================
-# Google検索（軽量版）
-# =========================
-def search_urls(query, max_results=5):
-    urls = []
-    try:
-        url = f"https://www.google.com/search?q={query}"
-        res = requests.get(url, headers=HEADERS, timeout=5)
-        soup = BeautifulSoup(res.text, "html.parser")
+        all_contact_lines.extend(contact_lines)
+        all_phones.extend(phones)
+        all_emails.extend(emails)
 
-        for a in soup.select("a"):
-            href = a.get("href")
-            if href and "http" in href and "google" not in href:
-                urls.append(href)
-            if len(urls) >= max_results:
-                break
-    except:
-        pass
+    def uniq_keep_order(items):
+        seen = set()
+        out = []
+        for x in items:
+            if x and x not in seen:
+                seen.add(x)
+                out.append(x)
+        return out
 
-    return urls
+    contact_lines = uniq_keep_order(all_contact_lines)[:50]
+    phones = uniq_keep_order(all_phones)[:20]
+    emails = uniq_keep_order(all_emails)[:20]
 
+    status = "ok" if contact_lines or phones or emails else "not_found"
 
-# =========================
-# 名前抽出
-# =========================
-def extract_name(pattern, text):
-    match = re.search(pattern, text)
-    if match:
-        name = match.group(1)
-        if len(name) <= 10:
-            return name
-    return None
-
-
-# =========================
-# HTMLから情報抽出
-# =========================
-def extract_contact_from_html(html):
-    data = {}
-
-    tel = re.search(r"\d{2,4}-\d{2,4}-\d{3,4}", html)
-    if tel:
-        data["代表電話"] = tel.group()
-
-    nurse = extract_name(r"看護部長[:：]?\s*([一-龥ぁ-んァ-ン]+)", html)
-    if nurse:
-        data["看護部長"] = nurse
-
-    admin = extract_name(r"事務長[:：]?\s*([一-龥ぁ-んァ-ン]+)", html)
-    if admin:
-        data["事務長"] = admin
-
-    return data
-
-
-# =========================
-# スコア計算
-# =========================
-def calculate_score(text, url):
-    score = 0
-    score += get_domain_score(url)
-
-    for k, v in KEYWORDS.items():
-        if k in text:
-            score += v
-
-    return score
-
-
-# =========================
-# メイン（デバッグあり）
-# =========================
-def get_staff_contact_debug(hospital_name: str, area: str = "", hospital_info: dict | None = None):
-    contact = {
-        "看護部長": "不明",
-        "事務長": "不明",
-        "人事担当": "不明",
-        "代表電話": "不明",
-        "採用窓口": "不明",
-        "URL": "",
-        "スコア": 0
+    return {
+        "status": status,
+        "contact_lines": contact_lines,
+        "phones": phones,
+        "emails": emails,
+        "debug_pages": page_results if debug else [],
     }
-
-    debug = {
-        "candidate_url_count": 0,
-        "page_details": []
-    }
-
-    # 軽量化：クエリは4つに制限
-    queries = [
-        f"{hospital_name} {area} 看護部長",
-        f"{hospital_name} {area} 事務長",
-        f"{hospital_name} 病院概要",
-        f"{hospital_name} 採用情報"
-    ]
-
-    urls = []
-    for q in queries:
-        urls.extend(search_urls(q, max_results=5))
-        time.sleep(1)
-
-    # 軽量化：最大8件まで
-    urls = list(set(urls))[:8]
-    debug["candidate_url_count"] = len(urls)
-
-    best_score = 0
-
-    for url in urls:
-        try:
-            if is_noise(url):
-                continue
-
-            res = requests.get(url, headers=HEADERS, timeout=5)
-            html = res.text
-
-            extracted = extract_contact_from_html(html)
-            score = calculate_score(html, url)
-            score += len(extracted) * 3
-
-            # debugも制限
-            if len(debug["page_details"]) < 5:
-                debug["page_details"].append({
-                    "url": url,
-                    "score": score,
-                    "data": extracted
-                })
-
-            if score > best_score:
-                best_score = score
-                contact.update(extracted)
-                contact["URL"] = url
-                contact["スコア"] = score
-
-        except:
-            continue
-
-    return contact, debug
-
-
-# =========================
-# 通常呼び出し（DEBUG切替）
-# =========================
-def get_staff_contact(hospital_name: str, area: str = "", hospital_info: dict | None = None, debug_mode=False):
-    if debug_mode:
-        return get_staff_contact_debug(hospital_name, area, hospital_info)
-    else:
-        contact, _ = get_staff_contact_debug(hospital_name, area, hospital_info)
-        return contact
