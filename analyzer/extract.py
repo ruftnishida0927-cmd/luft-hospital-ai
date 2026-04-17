@@ -1,138 +1,383 @@
-from __future__ import annotations
+# analyzer/extract.py
+# -*- coding: utf-8 -*-
 
 import re
-from typing import Dict, List
+from typing import Any, Dict, List
 
-from .models import Evidence, Page
-from .utils import extract_prefecture, is_japanese_address, normalize_space, unique_keep_order
 
-BASIC_PATTERNS = {
-    "住所": [r"(?:住所|所在地)[:：]?\s*([^
-。]{8,120})"],
-    "代表電話": [r"(?:TEL|電話番号|代表)[:：]?\s*(0\d{1,4}-\d{1,4}-\d{3,4})"],
-    "メール": [r"([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})"],
-    "病床数": [r"(\d{1,4})\s*床"],
-    "最寄駅": [r"最寄(?:り)?駅[:：]?\s*([^。\n]{2,40})", r"(?:JR|阪急|阪神|京阪|近鉄|地下鉄|東京メトロ|西鉄)[^。\n]{1,30}駅"],
-    "法人名": [r"(医療法人[^\s　]{1,40})", r"(社会医療法人[^\s　]{1,40})", r"(一般財団法人[^\s　]{1,40})", r"(公益社団法人[^\s　]{1,40})"],
-}
+JP_PREFECTURES = [
+    "北海道",
+    "青森県", "岩手県", "宮城県", "秋田県", "山形県", "福島県",
+    "茨城県", "栃木県", "群馬県", "埼玉県", "千葉県", "東京都", "神奈川県",
+    "新潟県", "富山県", "石川県", "福井県", "山梨県", "長野県",
+    "岐阜県", "静岡県", "愛知県", "三重県",
+    "滋賀県", "京都府", "大阪府", "兵庫県", "奈良県", "和歌山県",
+    "鳥取県", "島根県", "岡山県", "広島県", "山口県",
+    "徳島県", "香川県", "愛媛県", "高知県",
+    "福岡県", "佐賀県", "長崎県", "熊本県", "大分県", "宮崎県", "鹿児島県",
+    "沖縄県",
+]
 
 DEPARTMENT_KEYWORDS = [
-    "内科", "外科", "整形外科", "精神科", "心療内科", "皮膚科", "泌尿器科", "産婦人科", "婦人科", "眼科", "耳鼻咽喉科",
-    "小児科", "神経内科", "脳神経外科", "放射線科", "麻酔科", "リハビリテーション科", "透析", "救急科", "歯科", "消化器内科",
+    "内科", "外科", "整形外科", "皮膚科", "泌尿器科", "眼科", "耳鼻咽喉科",
+    "小児科", "産婦人科", "婦人科", "脳神経外科", "脳神経内科", "心療内科",
+    "精神科", "形成外科", "リハビリテーション科", "放射線科", "麻酔科",
+    "消化器内科", "消化器外科", "循環器内科", "呼吸器内科", "呼吸器外科",
+    "腎臓内科", "糖尿病内科", "血液内科", "救急科", "総合診療科",
 ]
 
-HOSPITAL_TYPE_HINTS = {
-    "一般病院": ["病院", "一般病床", "急性期"],
-    "療養型": ["療養病床", "慢性期", "療養"],
-    "精神科病院": ["精神科病院", "精神病床", "こころ"],
-    "有床診療所": ["診療所", "有床"],
-    "無床診療所": ["診療所", "無床"],
+HOSPITAL_TYPE_KEYWORDS = [
+    "病院", "クリニック", "診療所", "医院", "メディカルセンター",
+]
+
+HOSPITAL_FUNCTION_KEYWORDS = [
+    "急性期", "回復期", "慢性期", "療養", "救急", "在宅", "透析", "訪問診療",
+    "地域包括", "回復期リハビリテーション", "緩和ケア", "二次救急", "三次救急",
+]
+
+FACILITY_BASIC_RATE_KEYWORDS = [
+    "急性期一般入院料",
+    "地域一般入院料",
+    "療養病棟入院基本料",
+    "回復期リハビリテーション病棟入院料",
+    "地域包括ケア病棟入院料",
+    "精神病棟入院基本料",
+    "特定機能病院入院基本料",
+    "専門病院入院基本料",
+]
+
+FACILITY_ADDITION_KEYWORDS = [
+    "看護補助体制加算",
+    "夜間看護体制加算",
+    "夜間急性期看護補助体制加算",
+    "看護職員夜間配置加算",
+    "医師事務作業補助体制加算",
+    "診療録管理体制加算",
+    "療養環境加算",
+    "感染対策向上加算",
+    "医療安全対策加算",
+    "入退院支援加算",
+    "データ提出加算",
+    "栄養サポートチーム加算",
+    "褥瘡ハイリスク患者ケア加算",
+    "せん妄ハイリスク患者ケア加算",
+]
+
+RECRUIT_DEPARTMENT_KEYWORDS = [
+    "採用担当", "人事", "総務", "事務部", "管理部", "看護部", "事務長",
+]
+
+GROUP_KEYWORDS = [
+    "医療法人", "社会医療法人", "学校法人", "グループ", "関連施設", "法人本部",
+    "系列", "運営法人",
+]
+
+CONTACT_LINE_KEYWORDS = [
+    "お問い合わせ", "問い合わせ", "連絡先", "代表", "採用", "応募", "メール", "電話",
+]
+
+REGEX_PATTERNS = {
+    "address": [
+        r"(?:住所|所在地)\s*[：:\-]?\s*([^\n]{6,120})",
+        r"((?:北海道|東京都|京都府|大阪府|.{2,3}県).{4,80})",
+    ],
+    "phone": [
+        r"(?:TEL|Tel|tel|電話番号|電話)\s*[：:\-]?\s*(0\d{1,4}-\d{1,4}-\d{3,4})",
+        r"\b(0\d{1,4}-\d{1,4}-\d{3,4})\b",
+    ],
+    "email": [
+        r"([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})",
+    ],
+    "bed_count": [
+        r"(?:病床数|病床|許可病床数)\s*[：:\-]?\s*(\d{1,4})\s*床",
+        r"(\d{1,4})\s*床",
+    ],
+    "nearest_station": [
+        r"(?:最寄駅|アクセス)\s*[：:\-]?\s*([^\n]{2,80})",
+        r"([^\n]{1,30}駅(?:から)?(?:徒歩|バス)[^\n]{0,30})",
+    ],
+    "corporation_name": [
+        r"((?:社会医療法人|医療法人社団|医療法人財団|医療法人|学校法人)[^\n]{2,80})",
+    ],
+    "contact_person": [
+        r"(?:採用担当|担当者)\s*[：:\-]?\s*([^\n]{1,30})",
+    ],
 }
 
-FUNCTION_HINTS = {
-    "急性期": ["急性期", "救急", "一般病床", "手術", "ER"],
-    "回復期": ["回復期", "地域包括ケア", "リハビリ"],
-    "慢性期": ["慢性期", "療養病床", "療養"],
-    "在宅": ["訪問診療", "在宅", "往診"],
-    "透析": ["透析", "血液浄化"],
-    "救急": ["救急", "二次救急", "救急告示"],
-}
 
-BASIC_FEE_KEYWORDS = [
-    "入院基本料", "特定入院料", "急性期一般入院料", "地域包括ケア病棟入院料", "療養病棟入院基本料",
-    "回復期リハビリテーション病棟入院料", "精神病棟入院基本料", "結核病棟入院基本料",
-]
-
-ADDON_KEYWORDS = [
-    "加算", "補助体制", "夜間", "感染対策", "医師事務作業補助体制", "看護補助体制", "医療安全対策", "栄養サポート",
-]
-
-CONTACT_TITLE_HINTS = ["採用", "求人", "問い合わせ", "お問い合わせ", "連絡先"]
+def _clean_text(text: str) -> str:
+    if not text:
+        return ""
+    text = text.replace("\r", "\n")
+    text = re.sub(r"\u3000", " ", text)
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
 
 
-def extract_evidences(pages: List[Page]) -> Dict[str, List[Evidence]]:
-    out: Dict[str, List[Evidence]] = {}
-    for page in pages:
-        text = normalize_space(page.text)
+def _lines(text: str) -> List[str]:
+    cleaned = _clean_text(text)
+    rows = []
+    for line in cleaned.split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+        rows.append(line)
+    return rows
+
+
+def _dedupe_str_list(values: List[str]) -> List[str]:
+    seen = set()
+    result = []
+    for v in values:
+        x = (v or "").strip()
+        if not x:
+            continue
+        if x in seen:
+            continue
+        seen.add(x)
+        result.append(x)
+    return result
+
+
+def _mk_evidence(
+    field: str,
+    value: str,
+    page: Dict[str, Any],
+) -> Dict[str, Any]:
+    return {
+        "field": field,
+        "value": (value or "").strip(),
+        "url": page.get("url", ""),
+        "source_type": page.get("source_type", "unknown"),
+        "source_label": page.get("label", "") or page.get("title", "") or page.get("url", ""),
+        "page_category": page.get("category", "unknown"),
+    }
+
+
+def _find_by_patterns(field: str, text: str, page: Dict[str, Any]) -> List[Dict[str, Any]]:
+    results: List[Dict[str, Any]] = []
+    for pattern in REGEX_PATTERNS.get(field, []):
+        try:
+            matches = re.findall(pattern, text, flags=re.IGNORECASE)
+        except re.error:
+            continue
+        for match in matches:
+            value = match if isinstance(match, str) else " ".join(match)
+            value = value.strip(" 　:：-")
+            if len(value) < 2:
+                continue
+            results.append(_mk_evidence(field, value, page))
+    return results
+
+
+def _find_prefecture(text: str, page: Dict[str, Any]) -> List[Dict[str, Any]]:
+    results = []
+    for pref in JP_PREFECTURES:
+        if pref in text:
+            results.append(_mk_evidence("region", pref, page))
+    return results
+
+
+def _find_departments(text: str, page: Dict[str, Any]) -> List[Dict[str, Any]]:
+    results = []
+    hits = [kw for kw in DEPARTMENT_KEYWORDS if kw in text]
+    if hits:
+        results.append(_mk_evidence("departments", "、".join(_dedupe_str_list(hits)), page))
+    return results
+
+
+def _find_hospital_type(text: str, page: Dict[str, Any]) -> List[Dict[str, Any]]:
+    results = []
+    hits = [kw for kw in HOSPITAL_TYPE_KEYWORDS if kw in text]
+    if hits:
+        results.append(_mk_evidence("hospital_type", "、".join(_dedupe_str_list(hits)), page))
+    return results
+
+
+def _find_hospital_function(text: str, page: Dict[str, Any]) -> List[Dict[str, Any]]:
+    results = []
+    hits = [kw for kw in HOSPITAL_FUNCTION_KEYWORDS if kw in text]
+    if hits:
+        results.append(_mk_evidence("hospital_function", "、".join(_dedupe_str_list(hits)), page))
+    return results
+
+
+def _find_facility_items(text: str, page: Dict[str, Any]) -> Dict[str, List[str]]:
+    basic_rates = []
+    additions = []
+
+    for kw in FACILITY_BASIC_RATE_KEYWORDS:
+        if kw in text:
+            basic_rates.append(kw)
+
+    for kw in FACILITY_ADDITION_KEYWORDS:
+        if kw in text:
+            additions.append(kw)
+
+    return {
+        "basic_rates": _dedupe_str_list(basic_rates),
+        "additions": _dedupe_str_list(additions),
+        "lines": _extract_keyword_lines(text, FACILITY_BASIC_RATE_KEYWORDS + FACILITY_ADDITION_KEYWORDS),
+    }
+
+
+def _extract_keyword_lines(text: str, keywords: List[str]) -> List[str]:
+    rows = _lines(text)
+    picked = []
+    for row in rows:
+        if any(kw in row for kw in keywords):
+            picked.append(row)
+    return _dedupe_str_list(picked)
+
+
+def _find_recruit_items(text: str, page: Dict[str, Any]) -> Dict[str, List[Dict[str, Any]]]:
+    evidences: Dict[str, List[Dict[str, Any]]] = {
+        "contact_person": [],
+        "department": [],
+        "phone": [],
+        "email": [],
+    }
+
+    evidences["contact_person"].extend(_find_by_patterns("contact_person", text, page))
+    evidences["phone"].extend(_find_by_patterns("phone", text, page))
+    evidences["email"].extend(_find_by_patterns("email", text, page))
+
+    rows = _extract_keyword_lines(text, RECRUIT_DEPARTMENT_KEYWORDS + ["採用", "応募", "求人"])
+    for row in rows:
+        for kw in RECRUIT_DEPARTMENT_KEYWORDS:
+            if kw in row:
+                evidences["department"].append(_mk_evidence("department", kw, page))
+
+    return evidences
+
+
+def _find_group_items(text: str, page: Dict[str, Any]) -> Dict[str, List[str]]:
+    hits = []
+    for kw in GROUP_KEYWORDS:
+        if kw in text:
+            hits.append(kw)
+
+    rows = _extract_keyword_lines(text, GROUP_KEYWORDS)
+    return {
+        "related_facilities": _dedupe_str_list(hits),
+        "group_lines": rows,
+    }
+
+
+def _find_contact_lines(text: str) -> List[str]:
+    return _extract_keyword_lines(text, CONTACT_LINE_KEYWORDS)
+
+
+def extract_evidences(
+    pages: List[Dict[str, Any]],
+    hospital_name: str = "",
+    prefecture: str = "",
+) -> Dict[str, Any]:
+    basic: Dict[str, List[Dict[str, Any]]] = {
+        "address": [],
+        "region": [],
+        "nearest_station": [],
+        "bed_count": [],
+        "departments": [],
+        "hospital_type": [],
+        "hospital_function": [],
+        "corporation_name": [],
+        "phone": [],
+        "email": [],
+    }
+
+    facility = {
+        "basic_rates": [],
+        "additions": [],
+        "official_lines": [],
+        "public_lines": [],
+    }
+
+    recruit: Dict[str, List[Dict[str, Any]] | List[str]] = {
+        "contact_person": [],
+        "department": [],
+        "phone": [],
+        "email": [],
+        "contact_lines": [],
+    }
+
+    group = {
+        "related_facilities": [],
+        "group_lines": [],
+    }
+
+    contact: Dict[str, List[Dict[str, Any]] | List[str]] = {
+        "phone": [],
+        "email": [],
+        "contact_lines": [],
+    }
+
+    for page in pages or []:
+        text = _clean_text(page.get("text", "") or page.get("content", "") or "")
         if not text:
             continue
-        for field, patterns in BASIC_PATTERNS.items():
-            for pat in patterns:
-                for m in re.finditer(pat, text, re.I):
-                    val = normalize_space(m.group(1) if m.groups() else m.group(0))
-                    if field == "住所" and not is_japanese_address(val):
-                        continue
-                    if field == "病床数":
-                        val = f"{val}床"
-                    _append(out, field, Evidence(field, val, page.final_url, page.title or page.final_url, page.category, page.source_type, _score(page), f"regex:{field}"))
-                    break
 
-        departments = [kw for kw in DEPARTMENT_KEYWORDS if kw in text]
-        if departments:
-            val = "、".join(unique_keep_order(departments))
-            _append(out, "診療科", Evidence("診療科", val, page.final_url, page.title or page.final_url, page.category, page.source_type, _score(page), "keyword:departments"))
+        page_category = page.get("category", "unknown")
+        source_type = page.get("source_type", "unknown")
 
-        address_candidates = re.findall(r"(北海道|東京都|京都府|大阪府|.{2,3}県[^。\n]{4,60})", text)
-        for cand in address_candidates[:3]:
-            if is_japanese_address(cand):
-                _append(out, "住所", Evidence("住所", normalize_space(cand), page.final_url, page.title or page.final_url, page.category, page.source_type, _score(page), "heuristic:address"))
+        basic["address"].extend(_find_by_patterns("address", text, page))
+        basic["nearest_station"].extend(_find_by_patterns("nearest_station", text, page))
+        basic["bed_count"].extend(_find_by_patterns("bed_count", text, page))
+        basic["corporation_name"].extend(_find_by_patterns("corporation_name", text, page))
+        basic["phone"].extend(_find_by_patterns("phone", text, page))
+        basic["email"].extend(_find_by_patterns("email", text, page))
+        basic["region"].extend(_find_prefecture(text, page))
+        basic["departments"].extend(_find_departments(text, page))
+        basic["hospital_type"].extend(_find_hospital_type(text, page))
+        basic["hospital_function"].extend(_find_hospital_function(text, page))
 
-        pref = extract_prefecture(text)
-        if pref != "不明":
-            _append(out, "地域", Evidence("地域", pref, page.final_url, page.title or page.final_url, page.category, page.source_type, _score(page), "heuristic:prefecture"))
+        facility_items = _find_facility_items(text, page)
+        facility["basic_rates"].extend(facility_items["basic_rates"])
+        facility["additions"].extend(facility_items["additions"])
 
-        for type_name, hints in HOSPITAL_TYPE_HINTS.items():
-            if any(h in text for h in hints):
-                _append(out, "病院種別", Evidence("病院種別", type_name, page.final_url, page.title or page.final_url, page.category, page.source_type, _score(page), "heuristic:hospital_type"))
+        if source_type == "public" or page_category == "public":
+            facility["public_lines"].extend(facility_items["lines"])
+        else:
+            facility["official_lines"].extend(facility_items["lines"])
 
-        funcs = [name for name, hints in FUNCTION_HINTS.items() if any(h in text for h in hints)]
-        if funcs:
-            _append(out, "病院機能", Evidence("病院機能", "、".join(unique_keep_order(funcs)), page.final_url, page.title or page.final_url, page.category, page.source_type, _score(page), "heuristic:function"))
+        recruit_items = _find_recruit_items(text, page)
+        recruit["contact_person"].extend(recruit_items["contact_person"])
+        recruit["department"].extend(recruit_items["department"])
+        recruit["phone"].extend(recruit_items["phone"])
+        recruit["email"].extend(recruit_items["email"])
+        recruit["contact_lines"].extend(_extract_keyword_lines(text, ["採用", "応募", "求人", "人事", "総務", "問い合わせ"]))
 
-        for line in _split_semantic_lines(text):
-            if any(k in line for k in BASIC_FEE_KEYWORDS):
-                _append(out, "施設基準_基本料", Evidence("施設基準_基本料", line, page.final_url, page.title or page.final_url, page.category, page.source_type, _score(page, facility_boost=True), "line:basic_fee"))
-            elif any(k in line for k in ADDON_KEYWORDS):
-                _append(out, "施設基準_加算", Evidence("施設基準_加算", line, page.final_url, page.title or page.final_url, page.category, page.source_type, _score(page, facility_boost=True), "line:addon"))
+        group_items = _find_group_items(text, page)
+        group["related_facilities"].extend(group_items["related_facilities"])
+        group["group_lines"].extend(group_items["group_lines"])
 
-        if page.category in {"contact", "recruit"} or any(h in text for h in CONTACT_TITLE_HINTS):
-            for tel in re.findall(r"0\d{1,4}-\d{1,4}-\d{3,4}", text):
-                _append(out, "採用電話", Evidence("採用電話", tel, page.final_url, page.title or page.final_url, page.category, page.source_type, _score(page), "regex:tel"))
-            for mail in re.findall(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", text):
-                _append(out, "採用メール", Evidence("採用メール", mail, page.final_url, page.title or page.final_url, page.category, page.source_type, _score(page), "regex:mail"))
-            dept_hit = re.search(r"((採用担当|人事部|総務部|事務部|事務局|看護部|人材開発部)[^。\n]{0,20})", text)
-            if dept_hit:
-                _append(out, "採用担当部署", Evidence("採用担当部署", normalize_space(dept_hit.group(1)), page.final_url, page.title or page.final_url, page.category, page.source_type, _score(page), "regex:recruit_dept"))
+        contact["phone"].extend(_find_by_patterns("phone", text, page))
+        contact["email"].extend(_find_by_patterns("email", text, page))
+        contact["contact_lines"].extend(_find_contact_lines(text))
 
-        for grp in re.findall(r"((?:医療法人|社会医療法人|一般財団法人|公益社団法人)[^。\n]{1,40})", text):
-            _append(out, "関連法人候補", Evidence("関連法人候補", normalize_space(grp), page.final_url, page.title or page.final_url, page.category, page.source_type, _score(page), "regex:corp"))
+    if prefecture:
+        basic["region"].insert(0, _mk_evidence("region", prefecture, {
+            "url": "",
+            "source_type": "input",
+            "label": "入力都道府県",
+            "category": "input",
+            "title": "",
+        }))
 
-        for line in _split_semantic_lines(text):
-            if any(k in line for k in ["関連施設", "グループ", "施設一覧", "病院一覧", "勤務地一覧"]):
-                _append(out, "関連施設候補", Evidence("関連施設候補", line, page.final_url, page.title or page.final_url, page.category, page.source_type, _score(page), "line:group"))
-    return out
+    facility["basic_rates"] = _dedupe_str_list(facility["basic_rates"])
+    facility["additions"] = _dedupe_str_list(facility["additions"])
+    facility["official_lines"] = _dedupe_str_list(facility["official_lines"])
+    facility["public_lines"] = _dedupe_str_list(facility["public_lines"])
+    recruit["contact_lines"] = _dedupe_str_list(recruit["contact_lines"])
+    group["related_facilities"] = _dedupe_str_list(group["related_facilities"])
+    group["group_lines"] = _dedupe_str_list(group["group_lines"])
+    contact["contact_lines"] = _dedupe_str_list(contact["contact_lines"])
 
-
-def _append(out: Dict[str, List[Evidence]], key: str, ev: Evidence):
-    out.setdefault(key, []).append(ev)
-
-
-def _score(page: Page, facility_boost: bool = False) -> float:
-    base = 0.45
-    if page.source_type == "public":
-        base += 0.25
-    elif page.source_type == "official":
-        base += 0.2
-    elif page.source_type == "recruit":
-        base += 0.1
-    if page.category in {"basic", "facility", "recruit", "group", "contact", "public"}:
-        base += 0.1
-    if facility_boost and page.category in {"facility", "public"}:
-        base += 0.15
-    return min(base, 0.98)
-
-
-def _split_semantic_lines(text: str) -> List[str]:
-    text = text.replace("。", "\n").replace("・", "\n")
-    lines = [normalize_space(x) for x in re.split(r"[\n\r]+", text)]
-    return [x[:220] for x in lines if len(x) >= 4]
+    return {
+        "basic": basic,
+        "facility": facility,
+        "recruit": recruit,
+        "group": group,
+        "contact": contact,
+    }
