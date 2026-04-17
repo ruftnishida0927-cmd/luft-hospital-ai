@@ -46,20 +46,6 @@ ADDRESS_NOISE_WORDS = [
     "Caloo",
 ]
 
-GENERIC_AMBIGUOUS_NAME_WORDS = [
-    "中央病院",
-    "市民病院",
-    "総合病院",
-    "記念病院",
-    "徳洲会病院",
-    "済生会病院",
-    "赤十字病院",
-    "厚生病院",
-    "第一病院",
-    "第二病院",
-    "高雄病院",
-]
-
 
 def clean_text(text: str) -> str:
     if not text:
@@ -97,74 +83,64 @@ def _normalize_address_candidate(text: str) -> str:
     return text
 
 
-def _address_candidate_score(line: str) -> int:
-    score = 0
-
-    if not line:
-        return -999
-
-    if any(noise in line for noise in ADDRESS_NOISE_WORDS):
-        score -= 10
-
-    if "所在地" in line:
-        score += 8
-    if "住所" in line:
-        score += 8
-    if "アクセス" in line:
-        score += 2
-
-    if _contains_full_address_shape(line):
-        score += 6
-
-    if len(line) > 100:
-        score -= 3
-
-    return score
-
-
 def extract_address(text: str) -> str:
     lines = split_lines(text)
-
     candidates = []
 
-    # 1) 行ベースで強く拾う
+    # 行ベース
     for line in lines:
+        if any(noise in line for noise in ADDRESS_NOISE_WORDS):
+            continue
         if not _contains_full_address_shape(line):
             continue
 
         normalized = _normalize_address_candidate(line)
-        score = _address_candidate_score(normalized)
+        if not _contains_full_address_shape(normalized):
+            continue
+
+        score = 0
+        if "所在地" in line:
+            score += 10
+        if "住所" in line:
+            score += 10
+        if "アクセス" in line:
+            score += 2
+        if len(normalized) <= 60:
+            score += 2
+        if len(normalized) > 100:
+            score -= 3
 
         m = re.search(r"((北海道|..県|..府|東京都).{0,60}?(市|区|町|村).{0,40})", normalized)
         if m:
             addr = _normalize_address_candidate(m.group(1))
             candidates.append((score, addr))
 
-    # 2) 所在地/住所ラベルの近辺を拾う
+    # ラベル付き抽出
     patterns = [
         r"(所在地|住所)[:：]?\s*((北海道|..県|..府|東京都).{0,60}?(市|区|町|村).{0,40})",
         r"(アクセス)[:：]?\s*((北海道|..県|..府|東京都).{0,60}?(市|区|町|村).{0,40})",
     ]
     for pat in patterns:
         for m in re.finditer(pat, text):
+            label = m.group(1)
             addr = _normalize_address_candidate(m.group(2))
-            score = 12 if m.group(1) in ["所在地", "住所"] else 5
+
             if any(noise in addr for noise in ADDRESS_NOISE_WORDS):
-                score -= 10
+                continue
+
+            score = 0
+            if label in ["所在地", "住所"]:
+                score += 12
+            elif label == "アクセス":
+                score += 4
+
             candidates.append((score, addr))
 
     if not candidates:
         return "不明"
 
-    # スコア優先、同点なら短すぎず長すぎないもの
-    candidates = sorted(
-        candidates,
-        key=lambda x: (x[0], -abs(len(x[1]) - 25)),
-        reverse=True
-    )
-
-    best = candidates[0][1]
-    return best if best else "不明"
+    candidates = sorted(candidates, key=lambda x: (x[0], -abs(len(x[1]) - 25)), reverse=True)
+    return candidates[0][1]
 
 
 def extract_region(address: str) -> str:
@@ -270,10 +246,22 @@ def is_generic_ambiguous_hospital_name(hospital_name: str) -> bool:
 
     normalized = re.sub(r"\s+", "", hospital_name)
 
-    if normalized in GENERIC_AMBIGUOUS_NAME_WORDS:
+    generic_words = [
+        "中央病院",
+        "市民病院",
+        "総合病院",
+        "記念病院",
+        "徳洲会病院",
+        "済生会病院",
+        "赤十字病院",
+        "厚生病院",
+        "第一病院",
+        "第二病院",
+        "高雄病院",
+    ]
+    if normalized in generic_words:
         return True
 
-    # 病院名が極端に短く、法人名も地名もない場合は曖昧扱い寄り
     if len(normalized) <= 5 and normalized.endswith("病院"):
         return True
 
