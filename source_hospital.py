@@ -156,6 +156,13 @@ def _serpapi_search(query: str, max_results: int = 10) -> Dict[str, Any]:
         r.raise_for_status()
         data = r.json()
 
+        if data.get("error"):
+            return {
+                "ok": False,
+                "error": str(data.get("error")),
+                "results": [],
+            }
+
         organic = data.get("organic_results", []) or []
         results = []
         for row in organic:
@@ -227,21 +234,36 @@ def search_hospital_candidates(hospital_name: str, prefecture: str = "", max_url
         raw_results = resp.get("results", [])
 
         scored = []
+        raw_top_urls = []
+
         for r in raw_results:
             url = r.get("url", "")
             if not url:
                 continue
 
-            if _is_search_page(url):
-                continue
-
-            source_type = classify_source(url)
-            if not _is_detail_url(url) and source_type not in ["official", "public"]:
-                continue
+            raw_top_urls.append(url)
 
             title = r.get("title", "")
             snippet = r.get("snippet", "")
+
+            source_type = classify_source(url)
+            is_detail = _is_detail_url(url)
+            is_search = _is_search_page(url)
+
+            # 検索ページは禁止
+            if is_search:
+                continue
+
+            # 候補条件を少し緩める
+            # 詳細URL or 公式/公的 or 医療DB
+            if not is_detail and source_type not in ["official", "public", "medical-db"]:
+                continue
+
             score = _score_result_row(title, snippet, url, hospital_name, prefecture)
+
+            # 極端に弱いものは除外
+            if score < 6:
+                continue
 
             scored.append({
                 "query": q,
@@ -260,6 +282,8 @@ def search_hospital_candidates(hospital_name: str, prefecture: str = "", max_url
             "query": q,
             "ok": resp.get("ok", False),
             "error": resp.get("error", ""),
+            "raw_result_count": len(raw_results),
+            "raw_top_urls": raw_top_urls[:5],
             "accepted_count": len(scored),
             "accepted_urls": [x["url"] for x in scored[:5]],
         })
