@@ -32,26 +32,51 @@ def _safe_contains_name(text: str, hospital_name: str) -> bool:
 
 def _source_score(source_type: str) -> int:
     table = {
-        "official": 6,
-        "public": 5,
-        "medical-db": 2,
+        "official": 10,
+        "public": 8,
+        "medical-db": 4,
         "other": 1,
         "unknown": 0,
     }
     return table.get(source_type, 0)
 
 
+def _url_score(url: str) -> int:
+    if not url:
+        return 0
+
+    score = 0
+
+    if "byoinnavi.jp/clinic/" in url:
+        score += 10
+    if "caloo.jp/hospitals/detail/" in url:
+        score += 10
+    if "qlife.jp/hospital_detail_" in url:
+        score += 10
+    if "medicalnote.jp/hospitals/" in url:
+        score += 8
+
+    if "freeword?q=" in url:
+        score -= 10
+    if "/search/all" in url:
+        score -= 10
+    if "search_hospital_result" in url:
+        score -= 10
+
+    return score
+
+
 def _fact_score(facts: dict) -> int:
     score = 0
 
     if facts.get("address") and facts["address"] != "不明":
-        score += 4
+        score += 6
     if facts.get("region") and facts["region"] != "不明":
-        score += 2
+        score += 3
     if facts.get("nearest_station") and facts["nearest_station"] != "不明":
-        score += 1
-    if facts.get("bed_count") and facts["bed_count"] != "不明":
         score += 2
+    if facts.get("bed_count") and facts["bed_count"] != "不明":
+        score += 3
     if facts.get("departments") and facts["departments"] != "不明":
         score += 2
 
@@ -59,7 +84,7 @@ def _fact_score(facts: dict) -> int:
 
 
 def _title_score(title: str, hospital_name: str) -> int:
-    return 6 if _safe_contains_name(title, hospital_name) else 0
+    return 8 if _safe_contains_name(title, hospital_name) else 0
 
 
 def _body_name_score(text: str, hospital_name: str) -> int:
@@ -68,25 +93,10 @@ def _body_name_score(text: str, hospital_name: str) -> int:
 
     score = 0
     if _safe_contains_name(text[:3000], hospital_name):
-        score += 3
+        score += 6
     if _safe_contains_name(text[:1000], hospital_name):
-        score += 2
+        score += 3
     return score
-
-
-def _search_page_penalty(url: str) -> int:
-    if not url:
-        return 0
-
-    penalties = [
-        "freeword?q=",
-        "/search/all",
-        "search_hospital_result",
-    ]
-    if any(p in url for p in penalties):
-        return -6
-
-    return 0
 
 
 def _build_candidate_record(row: dict, hospital_name: str, debug: bool = False) -> dict:
@@ -99,10 +109,10 @@ def _build_candidate_record(row: dict, hospital_name: str, debug: bool = False) 
 
     score = 0
     score += _source_score(source_type)
+    score += _url_score(url)
     score += _title_score(title, hospital_name)
     score += _body_name_score(text, hospital_name)
     score += _fact_score(facts)
-    score += _search_page_penalty(url)
 
     if "病院" not in title and "病院" not in text[:2000]:
         score -= 3
@@ -169,15 +179,15 @@ def _merge_best_candidate(candidates: list, hospital_name: str) -> dict:
 
     status = "ok"
 
-    if best["score"] < 11:
+    if best["score"] < 14:
         status = "low_confidence"
     elif not has_name and not has_address:
         status = "low_confidence"
-    elif ambiguous_name and best_source not in ["official", "public"]:
+    elif ambiguous_name and best_source not in ["official", "public"] and not has_address:
         status = "ambiguous"
-    elif ambiguous_name and pref_consensus_count <= 1:
+    elif ambiguous_name and pref_consensus_count <= 1 and not has_address:
         status = "ambiguous"
-    elif diff <= 1:
+    elif diff <= 1 and not has_address:
         status = "ambiguous"
 
     selected = {
