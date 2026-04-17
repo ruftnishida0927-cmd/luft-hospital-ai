@@ -1,10 +1,10 @@
 # app.py
 # -*- coding: utf-8 -*-
 
+import json
 import streamlit as st
 
-from hospital_basic import analyze_hospital_from_url
-from source_hospital import build_helper_links, parse_multiline_urls
+from analyzer.report import run_analysis_report
 
 
 PREFECTURES = [
@@ -21,6 +21,73 @@ PREFECTURES = [
     "沖縄県",
 ]
 
+
+def parse_multiline_urls(raw_text: str) -> list[str]:
+    if not raw_text:
+        return []
+
+    urls: list[str] = []
+    seen = set()
+
+    for line in raw_text.splitlines():
+        value = line.strip()
+        if not value:
+            continue
+        if value in seen:
+            continue
+        seen.add(value)
+        urls.append(value)
+
+    return urls
+
+
+def safe_get(d: dict, key: str, default=None):
+    if not isinstance(d, dict):
+        return default
+    return d.get(key, default)
+
+
+def render_final_block(title: str, block: dict):
+    st.write(f"**{title}**")
+
+    if not isinstance(block, dict):
+        st.write("- ① 最終判断: 不明")
+        st.write("- ② 根拠ソース: 不明")
+        st.write("- ③ 整合性: 不明")
+        st.write("- ④ コメント: 不明")
+        return
+
+    final_value = block.get("final_value", "不明")
+    consistency = block.get("consistency", "不明")
+    comment = block.get("comment", "不明")
+    evidence = block.get("evidence", [])
+
+    st.write(f"- ① 最終判断: {final_value}")
+    st.write("- ② 根拠ソース:")
+
+    if evidence:
+        for ev in evidence[:8]:
+            source_label = ev.get("source_label", "不明")
+            source_type = ev.get("source_type", "不明")
+            url = ev.get("url", "")
+            value = ev.get("value", "不明")
+            st.write(f"  - [{source_type}] {source_label} | {value} | {url}")
+    else:
+        st.write("  - 不明")
+
+    st.write(f"- ③ 整合性: {consistency}")
+    st.write(f"- ④ コメント: {comment}")
+
+
+def render_list_section(title: str, rows: list):
+    st.write(f"**{title}**")
+    if rows:
+        for row in rows:
+            st.write(f"- {row}")
+    else:
+        st.write("不明")
+
+
 st.set_page_config(
     page_title="ルフト病院分析AI",
     page_icon="🏥",
@@ -28,11 +95,12 @@ st.set_page_config(
 )
 
 st.title("ルフト病院分析AI")
-st.error("BUILD MARKER: 2026-04-17 16:20")
-st.caption("無料前提のURL解析版 / 複数ソース比較仕様")
+st.caption("無料前提 / 病院URL起点 / 複数ソース比較 / 不明優先の安全設計")
 
 st.sidebar.header("設定")
 debug_mode = st.sidebar.checkbox("デバッグ表示ON", value=False)
+max_pages = st.sidebar.slider("同一ドメイン巡回上限", min_value=5, max_value=40, value=15, step=1)
+timeout_sec = st.sidebar.slider("HTTPタイムアウト秒", min_value=5, max_value=30, value=12, step=1)
 
 hospital_name = st.text_input("病院名", placeholder="例：高雄病院")
 prefecture = st.selectbox("都道府県（分かる場合のみ）", PREFECTURES, index=0)
@@ -43,7 +111,7 @@ public_urls_raw = st.text_area(
     placeholder="例:\nhttps://...\nhttps://..."
 )
 recruit_urls_raw = st.text_area(
-    "求人URL（任意・複数行可 / ハローワーク等も可）",
+    "求人URL（任意・複数行可）",
     placeholder="例:\nhttps://...\nhttps://..."
 )
 group_urls_raw = st.text_area(
@@ -54,14 +122,6 @@ extra_official_urls_raw = st.text_area(
     "公式補助URL（任意・複数行可）",
     placeholder="例:\nhttps://...\nhttps://..."
 )
-
-if hospital_name.strip():
-    helper = build_helper_links(hospital_name.strip(), prefecture)
-    with st.expander("候補URLを探すための補助リンク"):
-        st.markdown(f"[Google検索]({helper['google_search']})")
-        st.markdown(f"[病院なび検索]({helper['byoinnavi_search']})")
-        st.markdown(f"[Caloo検索]({helper['caloo_search']})")
-        st.markdown(f"[QLife検索]({helper['qlife_search']})")
 
 run = st.button("解析を実行", type="primary")
 
@@ -79,154 +139,111 @@ if run:
     group_urls = parse_multiline_urls(group_urls_raw)
     extra_official_urls = parse_multiline_urls(extra_official_urls_raw)
 
-    with st.spinner("病院URLを解析中..."):
-        result = analyze_hospital_from_url(
+    with st.spinner("解析中です。病院URL配下と候補ソースを確認しています..."):
+        result = run_analysis_report(
             hospital_name=hospital_name.strip(),
             main_url=main_url.strip(),
+            prefecture=prefecture.strip(),
             public_urls=public_urls,
             recruit_urls=recruit_urls,
             group_urls=group_urls,
             extra_official_urls=extra_official_urls,
+            max_pages=max_pages,
+            timeout_sec=timeout_sec,
             debug=debug_mode,
         )
 
-    if result.get("status") == "error":
-        st.error(result.get("error", "解析に失敗しました。"))
+    if safe_get(result, "status") == "error":
+        st.error(safe_get(result, "error", "解析に失敗しました。"))
         if debug_mode:
-            st.json(result.get("debug_info", {}))
+            st.subheader("デバッグ情報")
+            st.json(safe_get(result, "debug_info", {}))
         st.stop()
 
-    st.subheader("① 病院基本情報 / 病院機能")
-    basic = result.get("basic_info", {})
+    st.success("解析が完了しました。")
 
-    def show_adopted_block(title: str, block: dict):
-        st.write(f"**{title}**")
-        st.write(f"- 最終判断: {block.get('adopted_value', '不明')}")
-        st.write(f"- 整合性: {block.get('consistency', '不明')}")
-        evidence = block.get("evidence", [])
-        if evidence:
-            st.write("- 根拠:")
-            for ev in evidence[:5]:
-                st.write(f"  - [{ev.get('source_type','不明')}] {ev.get('value','不明')} | {ev.get('url','')}")
-        else:
-            st.write("- 根拠: 不明")
+    summary = safe_get(result, "summary", {})
+    discovered = safe_get(result, "discovered_pages", {})
+    basic = safe_get(result, "basic_info", {})
+    facility = safe_get(result, "facility_info", {})
+    recruit = safe_get(result, "recruit_info", {})
+    group = safe_get(result, "group_info", {})
+    contacts = safe_get(result, "contact_info", {})
 
-    c1, c2 = st.columns(2)
-    with c1:
-        st.write(f"**病院名**: {result.get('hospital_name', '不明')}")
-        st.write(f"**メインURL**: {result.get('main_url', '不明')}")
-        st.write(f"**ソース種別**: {result.get('source_type', '不明')}")
-        show_adopted_block("住所", basic.get("address", {}))
-        show_adopted_block("地域", basic.get("region", {}))
-        show_adopted_block("最寄駅", basic.get("nearest_station", {}))
+    st.subheader("0. 解析対象サマリー")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.write(f"**病院名**: {safe_get(summary, 'hospital_name', '不明')}")
+        st.write(f"**都道府県**: {safe_get(summary, 'prefecture', '不明')}")
+        st.write(f"**メインURL**: {safe_get(summary, 'main_url', '不明')}")
+    with col2:
+        st.write(f"**巡回ページ数**: {safe_get(summary, 'crawled_pages_count', 0)}")
+        st.write(f"**抽出候補ページ数**: {safe_get(summary, 'candidate_pages_count', 0)}")
+        st.write(f"**外部候補ページ数**: {safe_get(summary, 'external_pages_count', 0)}")
 
-    with c2:
-        show_adopted_block("病床数", basic.get("bed_count", {}))
-        show_adopted_block("診療科", basic.get("departments", {}))
-        show_adopted_block("病院種別", basic.get("hospital_type", {}))
-        hints = basic.get("function_hints", [])
-        st.write("**病院機能の手掛かり**")
-        if hints:
-            for row in hints:
-                st.write(f"- {row}")
-        else:
-            st.write("不明")
+    st.subheader("1. 病院基本情報")
+    left, right = st.columns(2)
 
-    st.subheader("② 施設基準 / 加算")
-    facility = result.get("facility_info", {})
-    st.write(f"**最終採用ソース**: {facility.get('adopted_source', '不明')}")
-    st.write(f"**整合性**: {facility.get('consistency', '不明')}")
+    with left:
+        render_final_block("住所", safe_get(basic, "address", {}))
+        render_final_block("地域", safe_get(basic, "region", {}))
+        render_final_block("最寄駅", safe_get(basic, "nearest_station", {}))
+        render_final_block("法人名", safe_get(basic, "corporation_name", {}))
+        render_final_block("代表電話", safe_get(basic, "phone", {}))
+        render_final_block("代表メール", safe_get(basic, "email", {}))
 
-    st.write("**採用した入院料 / 基本料系**")
-    adopted_basic_rates = facility.get("adopted_basic_rates", [])
-    if adopted_basic_rates:
-        for row in adopted_basic_rates:
-            st.write(f"- {row}")
-    else:
-        st.write("不明")
+    with right:
+        render_final_block("病床数", safe_get(basic, "bed_count", {}))
+        render_final_block("診療科", safe_get(basic, "departments", {}))
+        render_final_block("病院種別", safe_get(basic, "hospital_type", {}))
+        render_final_block("病院機能", safe_get(basic, "hospital_function", {}))
 
-    st.write("**採用した加算系**")
-    adopted_additions = facility.get("adopted_additions", [])
-    if adopted_additions:
-        for row in adopted_additions:
-            st.write(f"- {row}")
-    else:
-        st.write("不明")
+    st.subheader("2. 施設基準・届出・加算")
+    render_final_block("施設基準総合判断", safe_get(facility, "overall", {}))
+    render_list_section("基本料系", safe_get(facility, "basic_rates", []))
+    render_list_section("加算系", safe_get(facility, "additions", []))
+    render_list_section("根拠行（公式）", safe_get(facility, "official_lines", []))
+    render_list_section("根拠行（公的）", safe_get(facility, "public_lines", []))
 
-    st.write("**公式HPで確認した施設基準関連**")
-    official_confirmed_lines = facility.get("official_confirmed_lines", [])
-    if official_confirmed_lines:
-        for row in official_confirmed_lines[:30]:
-            st.write(f"- {row}")
-    else:
-        st.write("不明")
+    st.subheader("3. 求人窓口")
+    render_final_block("採用担当候補", safe_get(recruit, "contact_person", {}))
+    render_final_block("担当部署候補", safe_get(recruit, "department", {}))
+    render_final_block("問い合わせ電話", safe_get(recruit, "phone", {}))
+    render_final_block("問い合わせメール", safe_get(recruit, "email", {}))
+    render_list_section("求人記載行", safe_get(recruit, "contact_lines", []))
 
-    st.write("**公的ソースで確認した施設基準関連**")
-    public_confirmed_lines = facility.get("public_confirmed_lines", [])
-    if public_confirmed_lines:
-        for row in public_confirmed_lines[:30]:
-            st.write(f"- {row}")
-    else:
-        st.write("不明")
+    st.subheader("4. グループ情報")
+    render_final_block("同一法人 / 同一グループ総合判断", safe_get(group, "overall", {}))
+    render_list_section("関連施設候補", safe_get(group, "related_facilities", []))
+    render_list_section("勤務地・法人候補", safe_get(group, "group_lines", []))
 
-    st.subheader("③ 求人窓口候補")
-    contact = result.get("staff_contact_info", {})
-    st.write(f"**最終採用ソース**: {contact.get('adopted_source', '不明')}")
-    st.write(f"**整合性**: {contact.get('consistency', '不明')}")
+    st.subheader("5. 連絡先抽出")
+    render_final_block("代表電話候補", safe_get(contacts, "phone", {}))
+    render_final_block("代表メール候補", safe_get(contacts, "email", {}))
+    render_list_section("問い合わせ関連行", safe_get(contacts, "contact_lines", []))
 
-    st.write("**採用した窓口候補の記載**")
-    adopted_contact_lines = contact.get("adopted_contact_lines", [])
-    if adopted_contact_lines:
-        for row in adopted_contact_lines[:30]:
-            st.write(f"- {row}")
-    else:
-        st.write("不明")
-
-    st.write("**採用した電話番号候補**")
-    adopted_phones = contact.get("adopted_phones", [])
-    if adopted_phones:
-        for row in adopted_phones:
-            st.write(f"- {row}")
-    else:
-        st.write("不明")
-
-    st.write("**採用したメール候補**")
-    adopted_emails = contact.get("adopted_emails", [])
-    if adopted_emails:
-        for row in adopted_emails:
-            st.write(f"- {row}")
-    else:
-        st.write("不明")
-
-    st.write("**公式ソースで確認した窓口候補**")
-    for row in contact.get("official_contact_lines", [])[:20]:
-        st.write(f"- {row}")
-
-    st.write("**外部求人ソースで確認した窓口候補**")
-    for row in contact.get("external_contact_lines", [])[:20]:
-        st.write(f"- {row}")
-
-    st.subheader("④ グループ情報候補")
-    group = result.get("group_info", {})
-    st.write(f"**整合性**: {group.get('consistency', '不明')}")
-    candidates = group.get("candidates", [])
-    if candidates:
-        for row in candidates:
-            st.write(f"- {row}")
-    else:
-        st.write("不明")
-
-    st.subheader("⑤ 自動探索ページ一覧")
-    discovered = result.get("discovered_pages", {})
-    for cat in ["basic", "facility", "recruit", "group", "contact", "public"]:
-        rows = discovered.get(cat, [])
-        with st.expander(f"{cat} ({len(rows)}件)"):
+    st.subheader("6. 自動探索ページ一覧")
+    for category in ["basic", "facility", "recruit", "group", "contact", "public"]:
+        rows = safe_get(discovered, category, [])
+        with st.expander(f"{category} ({len(rows)})"):
             if rows:
                 for row in rows:
-                    st.write(f"- [{row.get('source_type','不明')}] {row.get('label', '')} | {row.get('url', '')}")
+                    label = row.get("label", "")
+                    source_type = row.get("source_type", "不明")
+                    url = row.get("url", "")
+                    st.write(f"- [{source_type}] {label} | {url}")
             else:
                 st.write("該当なし")
 
+    st.subheader("7. JSON出力")
+    json_text = json.dumps(result, ensure_ascii=False, indent=2)
+    st.download_button(
+        label="解析結果JSONをダウンロード",
+        data=json_text,
+        file_name="luft_hospital_analysis_result.json",
+        mime="application/json",
+    )
+
     if debug_mode:
-        st.subheader("デバッグ情報")
-        st.json(result.get("debug_info", {}))
+        st.subheader("8. デバッグ情報")
+        st.json(safe_get(result, "debug_info", {}))
