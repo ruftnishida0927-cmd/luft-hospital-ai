@@ -47,15 +47,20 @@ def show_basic_result(result: dict):
     elif status in ["ambiguous", "low_confidence"] and selected:
         st.warning("病院候補は見つかりましたが、まだ特定精度が不十分です。施設基準検索には進めません。")
 
-        st.write(f"**暫定候補タイトル**: {selected.get('title', '不明')}")
-        st.write(f"**URL**: {selected.get('url', '不明')}")
-        st.write(f"**住所**: {selected.get('address', '不明')}")
-        st.write(f"**地域**: {selected.get('region', '不明')}")
-        st.write(f"**最寄駅**: {selected.get('nearest_station', '不明')}")
-        st.write(f"**病床数**: {selected.get('bed_count', '不明')}")
-        st.write(f"**診療科**: {selected.get('departments', '不明')}")
-        st.write(f"**病院種別**: {selected.get('hospital_type', '不明')}")
-        st.write(f"**スコア**: {selected.get('score', '不明')}")
+        c1, c2 = st.columns(2)
+        with c1:
+            st.write(f"**暫定候補タイトル**: {selected.get('title', '不明')}")
+            st.write(f"**URL**: {selected.get('url', '不明')}")
+            st.write(f"**ソース種別**: {selected.get('source_type', '不明')}")
+            st.write(f"**スコア**: {selected.get('score', '不明')}")
+
+        with c2:
+            st.write(f"**住所**: {selected.get('address', '不明')}")
+            st.write(f"**地域**: {selected.get('region', '不明')}")
+            st.write(f"**最寄駅**: {selected.get('nearest_station', '不明')}")
+            st.write(f"**病床数**: {selected.get('bed_count', '不明')}")
+            st.write(f"**診療科**: {selected.get('departments', '不明')}")
+            st.write(f"**病院種別**: {selected.get('hospital_type', '不明')}")
 
     else:
         st.error("病院候補を特定できませんでした。")
