@@ -88,13 +88,13 @@ def extract_address(text: str) -> str:
         if "アクセス" in line:
             score += 2
 
-        m = re.search(r"((北海道|..県|..府|東京都).{0,70}?(市|区|町|村).{0,50})", line)
+        m = re.search(r"((北海道|..県|..府|東京都).{0,80}?(市|区|町|村).{0,60})", line)
         if m:
             candidates.append((score, _normalize_address_candidate(m.group(1))))
 
     for pat in [
-        r"(所在地|住所)[:：]?\s*((北海道|..県|..府|東京都).{0,70}?(市|区|町|村).{0,50})",
-        r"(アクセス)[:：]?\s*((北海道|..県|..府|東京都).{0,70}?(市|区|町|村).{0,50})",
+        r"(所在地|住所)[:：]?\s*((北海道|..県|..府|東京都).{0,80}?(市|区|町|村).{0,60})",
+        r"(アクセス)[:：]?\s*((北海道|..県|..府|東京都).{0,80}?(市|区|町|村).{0,60})",
     ]:
         for m in re.finditer(pat, text):
             label = m.group(1)
@@ -141,6 +141,7 @@ def extract_bed_count(text: str) -> str:
         for pat in [
             r"病床数[:：]?\s*(\d{1,4})\s*床",
             r"許可病床数[:：]?\s*(\d{1,4})\s*床",
+            r"病床.*?(\d{1,4})\s*床",
             r"(\d{1,4})\s*床",
         ]:
             m = re.search(pat, line)
@@ -196,11 +197,10 @@ def extract_facility_lines(text: str) -> list[str]:
     uniq = []
     seen = set()
     for row in rows:
-        r = row.strip()
-        if r and r not in seen:
-            seen.add(r)
-            uniq.append(r)
-    return uniq[:80]
+        if row not in seen:
+            seen.add(row)
+            uniq.append(row)
+    return uniq[:100]
 
 
 def split_facility_items(lines: list[str]) -> dict:
@@ -217,17 +217,15 @@ def split_facility_items(lines: list[str]) -> dict:
             other_items.append(line)
 
     return {
-        "basic_rates": basic_rates[:40],
-        "additions": additions[:40],
-        "other_items": other_items[:40],
+        "basic_rates": basic_rates[:50],
+        "additions": additions[:50],
+        "other_items": other_items[:50],
     }
 
 
 def extract_group_candidates(text: str) -> list[str]:
-    lines = split_lines(text)
     rows = []
-
-    for line in lines:
+    for line in split_lines(text):
         if any(kw in line for kw in ["グループ", "関連施設", "関連病院", "法人", "施設一覧", "病院一覧"]):
             rows.append(line)
 
@@ -237,8 +235,7 @@ def extract_group_candidates(text: str) -> list[str]:
         if row not in seen:
             seen.add(row)
             uniq.append(row)
-
-    return uniq[:40]
+    return uniq[:60]
 
 
 def extract_phone_numbers(text: str) -> list[str]:
@@ -249,7 +246,7 @@ def extract_phone_numbers(text: str) -> list[str]:
         if n not in seen:
             seen.add(n)
             uniq.append(n)
-    return uniq[:20]
+    return uniq[:30]
 
 
 def extract_emails(text: str) -> list[str]:
@@ -260,7 +257,7 @@ def extract_emails(text: str) -> list[str]:
         if m not in seen:
             seen.add(m)
             uniq.append(m)
-    return uniq[:20]
+    return uniq[:30]
 
 
 def extract_contact_lines(text: str) -> list[str]:
@@ -275,8 +272,25 @@ def extract_contact_lines(text: str) -> list[str]:
         if row not in seen:
             seen.add(row)
             uniq.append(row)
+    return uniq[:60]
 
-    return uniq[:40]
+
+def extract_update_date_candidates(text: str) -> list[str]:
+    patterns = [
+        r"(20\d{2}[/-]\d{1,2}[/-]\d{1,2})",
+        r"(20\d{2}年\d{1,2}月\d{1,2}日)",
+    ]
+    rows = []
+    for pat in patterns:
+        rows.extend(re.findall(pat, text))
+
+    uniq = []
+    seen = set()
+    for row in rows:
+        if row not in seen:
+            seen.add(row)
+            uniq.append(row)
+    return uniq[:10]
 
 
 def extract_basic_facts(text: str, title: str = "", url: str = "") -> dict:
@@ -289,4 +303,5 @@ def extract_basic_facts(text: str, title: str = "", url: str = "") -> dict:
         "departments": extract_departments(text),
         "hospital_type": extract_hospital_type(text, title=title),
         "function_hints": extract_function_hints(text),
+        "update_dates": extract_update_date_candidates(text),
     }
