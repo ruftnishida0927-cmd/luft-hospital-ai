@@ -4,7 +4,7 @@
 import re
 from collections import Counter
 
-from source_hospital import collect_hospital_candidate_urls
+from source_hospital import search_hospital_candidates
 from search_provider import fetch_page_text
 from extractors import extract_basic_facts, is_generic_ambiguous_hospital_name
 
@@ -13,32 +13,15 @@ def _normalize_name(name: str) -> str:
     if not name:
         return ""
     name = re.sub(r"\s+", "", name)
-    name = name.replace("医療法人", "")
-    name = name.replace("一般財団法人", "")
-    name = name.replace("社会医療法人", "")
-    name = name.replace("医療法人社団", "")
+    for word in ["医療法人", "一般財団法人", "社会医療法人", "医療法人社団"]:
+        name = name.replace(word, "")
     return name
 
 
 def _safe_contains_name(text: str, hospital_name: str) -> bool:
     if not text or not hospital_name:
         return False
-
-    norm_text = _normalize_name(text)
-    norm_name = _normalize_name(hospital_name)
-
-    return norm_name in norm_text
-
-
-def _source_score(source_type: str) -> int:
-    table = {
-        "official": 10,
-        "public": 8,
-        "medical-db": 4,
-        "other": 1,
-        "unknown": 0,
-    }
-    return table.get(source_type, 0)
+    return _normalize_name(hospital_name) in _normalize_name(text)
 
 
 def _url_score(url: str) -> int:
@@ -46,56 +29,48 @@ def _url_score(url: str) -> int:
         return 0
 
     score = 0
-
     if "byoinnavi.jp/clinic/" in url:
-        score += 10
+        score += 12
     if "caloo.jp/hospitals/detail/" in url:
-        score += 10
+        score += 12
     if "qlife.jp/hospital_detail_" in url:
-        score += 10
+        score += 12
     if "medicalnote.jp/hospitals/" in url:
-        score += 8
+        score += 10
 
     if "freeword?q=" in url:
-        score -= 10
+        score -= 20
     if "/search/all" in url:
-        score -= 10
+        score -= 20
     if "search_hospital_result" in url:
-        score -= 10
+        score -= 20
 
     return score
+
+
+def _source_score(source_type: str) -> int:
+    table = {
+        "official": 12,
+        "public": 10,
+        "medical-db": 5,
+        "other": 1,
+        "unknown": 0,
+    }
+    return table.get(source_type, 0)
 
 
 def _fact_score(facts: dict) -> int:
     score = 0
-
-    if facts.get("address") and facts["address"] != "不明":
-        score += 6
-    if facts.get("region") and facts["region"] != "不明":
-        score += 3
-    if facts.get("nearest_station") and facts["nearest_station"] != "不明":
+    if facts.get("address") != "不明":
+        score += 8
+    if facts.get("region") != "不明":
+        score += 4
+    if facts.get("nearest_station") != "不明":
         score += 2
-    if facts.get("bed_count") and facts["bed_count"] != "不明":
+    if facts.get("bed_count") != "不明":
         score += 3
-    if facts.get("departments") and facts["departments"] != "不明":
+    if facts.get("departments") != "不明":
         score += 2
-
-    return score
-
-
-def _title_score(title: str, hospital_name: str) -> int:
-    return 8 if _safe_contains_name(title, hospital_name) else 0
-
-
-def _body_name_score(text: str, hospital_name: str) -> int:
-    if not text:
-        return 0
-
-    score = 0
-    if _safe_contains_name(text[:3000], hospital_name):
-        score += 6
-    if _safe_contains_name(text[:1000], hospital_name):
-        score += 3
     return score
 
 
@@ -108,14 +83,11 @@ def _build_candidate_record(row: dict, hospital_name: str, debug: bool = False) 
     facts = extract_basic_facts(text, title=title, url=url)
 
     score = 0
-    score += _source_score(source_type)
     score += _url_score(url)
-    score += _title_score(title, hospital_name)
-    score += _body_name_score(text, hospital_name)
+    score += _source_score(source_type)
+    score += 8 if _safe_contains_name(title, hospital_name) else 0
+    score += 6 if _safe_contains_name(text[:3000], hospital_name) else 0
     score += _fact_score(facts)
-
-    if "病院" not in title and "病院" not in text[:2000]:
-        score -= 3
 
     return {
         "title": title,
@@ -128,16 +100,6 @@ def _build_candidate_record(row: dict, hospital_name: str, debug: bool = False) 
         "facts": facts,
         "text_preview": text[:1200] if debug else "",
     }
-
-
-def _has_strong_name_match(candidate: dict, hospital_name: str) -> bool:
-    if _safe_contains_name(candidate.get("title", ""), hospital_name):
-        return True
-    if _safe_contains_name(candidate.get("text_preview", ""), hospital_name):
-        return True
-    if _safe_contains_name(candidate.get("facts", {}).get("name_candidate", ""), hospital_name):
-        return True
-    return False
 
 
 def _pref_consensus(candidates: list) -> dict:
@@ -156,39 +118,75 @@ def _pref_consensus(candidates: list) -> dict:
     return {"top_pref": top_pref, "count": count, "all": prefs}
 
 
-def _merge_best_candidate(candidates: list, hospital_name: str) -> dict:
-    if not candidates:
+def _has_strong_name_match(candidate: dict, hospital_name: str) -> bool:
+    if _safe_contains_name(candidate.get("title", ""), hospital_name):
+        return True
+    if _safe_contains_name(candidate.get("text_preview", ""), hospital_name):
+        return True
+    if _safe_contains_name(candidate.get("facts", {}).get("name_candidate", ""), hospital_name):
+        return True
+    return False
+
+
+def identify_hospital_basic(hospital_name: str, debug: bool = False) -> dict:
+    collected = search_hospital_candidates(hospital_name, max_urls=10)
+    url_rows = collected.get("rows", [])
+    query_debug = collected.get("debug", [])
+
+    if not url_rows:
         return {
             "status": "not_found",
             "selected": None,
             "candidates": [],
+            "debug_info": {
+                "message": "有効な候補URLが取得できませんでした。",
+                "query_debug": query_debug,
+            } if debug else {}
         }
 
-    sorted_rows = sorted(candidates, key=lambda x: x["score"], reverse=True)
+    candidate_rows = []
+    errors = []
+
+    for row in url_rows[:8]:
+        try:
+            candidate_rows.append(_build_candidate_record(row, hospital_name, debug=debug))
+        except Exception as e:
+            errors.append({
+                "url": row.get("url", ""),
+                "error": str(e),
+            })
+
+    if not candidate_rows:
+        return {
+            "status": "not_found",
+            "selected": None,
+            "candidates": [],
+            "debug_info": {
+                "message": "候補URLはあったが本文取得・抽出に失敗しました。",
+                "query_debug": query_debug,
+                "errors": errors,
+            } if debug else {}
+        }
+
+    sorted_rows = sorted(candidate_rows, key=lambda x: x["score"], reverse=True)
     best = sorted_rows[0]
     second_score = sorted_rows[1]["score"] if len(sorted_rows) >= 2 else -999
     diff = best["score"] - second_score
 
     has_name = _has_strong_name_match(best, hospital_name)
     has_address = best.get("facts", {}).get("address", "不明") != "不明"
-    best_source = best.get("source_type", "unknown")
     ambiguous_name = is_generic_ambiguous_hospital_name(hospital_name)
-
     pref_info = _pref_consensus(sorted_rows)
-    pref_consensus_count = pref_info["count"]
 
     status = "ok"
-
-    if best["score"] < 14:
+    if best["score"] < 18:
         status = "low_confidence"
+    elif ambiguous_name and not has_address:
+        status = "ambiguous"
+    elif diff <= 2 and not has_address:
+        status = "ambiguous"
     elif not has_name and not has_address:
         status = "low_confidence"
-    elif ambiguous_name and best_source not in ["official", "public"] and not has_address:
-        status = "ambiguous"
-    elif ambiguous_name and pref_consensus_count <= 1 and not has_address:
-        status = "ambiguous"
-    elif diff <= 1 and not has_address:
-        status = "ambiguous"
 
     selected = {
         "hospital_name_input": hospital_name,
@@ -209,47 +207,9 @@ def _merge_best_candidate(candidates: list, hospital_name: str) -> dict:
         "selected": selected,
         "candidates": sorted_rows[:8],
         "consensus": pref_info,
-    }
-
-
-def identify_hospital_basic(hospital_name: str, debug: bool = False) -> dict:
-    collected = collect_hospital_candidate_urls(hospital_name, debug=debug, max_urls=10)
-    url_rows = collected.get("rows", [])
-    query_debug = collected.get("debug", [])
-
-    if not url_rows:
-        return {
-            "status": "not_found",
-            "selected": None,
-            "candidates": [],
-            "debug_info": {
-                "message": "候補URLが取得できませんでした。",
-                "query_debug": query_debug,
-            } if debug else {}
-        }
-
-    candidate_rows = []
-    errors = []
-
-    for row in url_rows[:8]:
-        try:
-            rec = _build_candidate_record(row, hospital_name, debug=debug)
-            candidate_rows.append(rec)
-        except Exception as e:
-            errors.append({
-                "url": row.get("url", ""),
-                "error": str(e),
-            })
-
-    merged = _merge_best_candidate(candidate_rows, hospital_name)
-
-    if debug:
-        merged["debug_info"] = {
-            "message": "候補URLは取得済みです。",
-            "collected_url_count": len(url_rows),
-            "scored_candidate_count": len(candidate_rows),
-            "errors": errors,
+        "debug_info": {
+            "message": "有効候補URLベースで評価しました。",
             "query_debug": query_debug,
-        }
-
-    return merged
+            "errors": errors,
+        } if debug else {},
+    }
