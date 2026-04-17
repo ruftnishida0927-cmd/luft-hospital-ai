@@ -95,10 +95,8 @@ def extract_address(text: str) -> str:
         for m in re.finditer(pat, text):
             label = m.group(1)
             addr = _normalize_address_candidate(m.group(2))
-
             if any(noise in addr for noise in ADDRESS_NOISE_WORDS):
                 continue
-
             score = 12 if label in ["所在地", "住所"] else 4
             candidates.append((score, addr))
 
