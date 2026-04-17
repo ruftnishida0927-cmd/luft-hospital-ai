@@ -1,20 +1,14 @@
 # source_hospital.py
 # -*- coding: utf-8 -*-
 
-import re
-from urllib.parse import quote_plus
-
-from search_provider import (
-    fetch_page_html,
-    extract_links,
-    get_domain,
-)
+from search_provider import fetch_page_html, extract_links, get_domain
 
 
 CATEGORY_KEYWORDS = {
     "basic": [
         "病院紹介", "病院概要", "当院について", "病院案内", "医院案内",
         "アクセス", "所在地", "外来案内", "診療案内", "入院案内",
+        "診療科", "部門案内", "病床",
     ],
     "facility": [
         "施設基準", "加算", "届出", "届け出", "診療報酬",
@@ -23,6 +17,7 @@ CATEGORY_KEYWORDS = {
     "recruit": [
         "採用", "求人", "募集", "リクルート", "採用情報",
         "求人情報", "看護師募集", "スタッフ募集", "エントリー",
+        "ハローワーク",
     ],
     "group": [
         "グループ", "法人概要", "法人案内", "関連施設", "関連病院",
@@ -49,6 +44,7 @@ def classify_source(url: str) -> str:
 def is_search_page_url(url: str) -> bool:
     if not url:
         return False
+
     patterns = [
         "freeword?q=",
         "/search/all",
@@ -60,6 +56,8 @@ def is_search_page_url(url: str) -> bool:
 
 
 def build_helper_links(hospital_name: str, prefecture: str = "") -> dict:
+    from urllib.parse import quote_plus
+
     q = quote_plus(f"{hospital_name} {prefecture}".strip())
     return {
         "google_search": f"https://www.google.com/search?q={q}",
@@ -69,23 +67,70 @@ def build_helper_links(hospital_name: str, prefecture: str = "") -> dict:
     }
 
 
+def parse_multiline_urls(raw_text: str) -> list[str]:
+    rows = []
+    seen = set()
+
+    for line in raw_text.splitlines():
+        u = line.strip()
+        if not u:
+            continue
+        if u in seen:
+            continue
+        seen.add(u)
+        rows.append(u)
+
+    return rows
+
+
 def _category_score(text: str, url: str, category: str) -> int:
     score = 0
-    text = f"{text} {url}"
+    haystack = f"{text} {url}"
 
     for kw in CATEGORY_KEYWORDS.get(category, []):
-        if kw in text:
+        if kw in haystack:
             score += 3
 
     return score
 
 
-def discover_related_pages(main_url: str, extra_urls: list[str] | None = None, max_pages: int = 25) -> dict:
-    """
-    メインURLから同一ドメイン内リンクを収集して、
-    basic / facility / recruit / group / contact に分類する
-    """
-    extra_urls = extra_urls or []
+def _to_scored_link_rows(source_url: str, links: list[dict]) -> list[dict]:
+    rows = []
+
+    for link in links:
+        url = link.get("url", "")
+        if not url or is_search_page_url(url):
+            continue
+
+        label = f"{link.get('text', '')} {link.get('title', '')}".strip()
+
+        rows.append({
+            "url": url,
+            "label": label,
+            "source_url": source_url,
+            "source_type": classify_source(url),
+            "basic_score": _category_score(label, url, "basic"),
+            "facility_score": _category_score(label, url, "facility"),
+            "recruit_score": _category_score(label, url, "recruit"),
+            "group_score": _category_score(label, url, "group"),
+            "contact_score": _category_score(label, url, "contact"),
+        })
+
+    return rows
+
+
+def discover_related_pages(
+    main_url: str,
+    public_urls: list[str] | None = None,
+    recruit_urls: list[str] | None = None,
+    group_urls: list[str] | None = None,
+    extra_official_urls: list[str] | None = None,
+    max_pages: int = 40,
+) -> dict:
+    public_urls = public_urls or []
+    recruit_urls = recruit_urls or []
+    group_urls = group_urls or []
+    extra_official_urls = extra_official_urls or []
 
     html_text, err = fetch_page_html(main_url, timeout=15)
     if err:
@@ -100,6 +145,7 @@ def discover_related_pages(main_url: str, extra_urls: list[str] | None = None, m
                 "recruit": [],
                 "group": [],
                 "contact": [],
+                "public": [],
             },
         }
 
@@ -108,55 +154,51 @@ def discover_related_pages(main_url: str, extra_urls: list[str] | None = None, m
     all_candidates = []
     seen = set()
 
-    # main_url 自体も候補に含める
-    base_rows = [{
-        "url": main_url,
-        "text": "トップページ",
-        "title": "",
-    }] + same_domain_links
-
-    for row in base_rows:
-        url = row.get("url", "")
-        if not url or url in seen:
-            continue
+    def push_manual_url(url: str, label: str, source_type: str):
+        if not url or url in seen or is_search_page_url(url):
+            return
         seen.add(url)
-
-        if is_search_page_url(url):
-            continue
-
-        label = f"{row.get('text', '')} {row.get('title', '')}".strip()
         all_candidates.append({
             "url": url,
             "label": label,
-            "basic_score": _category_score(label, url, "basic"),
-            "facility_score": _category_score(label, url, "facility"),
-            "recruit_score": _category_score(label, url, "recruit"),
-            "group_score": _category_score(label, url, "group"),
-            "contact_score": _category_score(label, url, "contact"),
+            "source_url": url,
+            "source_type": source_type,
+            "basic_score": 6 if "basic" in label else 0,
+            "facility_score": 6 if "facility" in label else 0,
+            "recruit_score": 6 if "recruit" in label else 0,
+            "group_score": 6 if "group" in label else 0,
+            "contact_score": 6 if "contact" in label else 0,
         })
 
-    for u in extra_urls:
-        if not u or u in seen:
+    push_manual_url(main_url, "main basic", "official")
+
+    for row in _to_scored_link_rows(main_url, same_domain_links):
+        if row["url"] in seen:
             continue
-        if is_search_page_url(u):
-            continue
-        seen.add(u)
-        all_candidates.append({
-            "url": u,
-            "label": "追加URL",
-            "basic_score": 0,
-            "facility_score": 0,
-            "recruit_score": 10,
-            "group_score": 0,
-            "contact_score": 6,
-        })
+        seen.add(row["url"])
+        all_candidates.append(row)
+
+    for u in extra_official_urls:
+        push_manual_url(u, "basic official extra", "official")
+
+    for u in public_urls:
+        push_manual_url(u, "facility public source", "public")
+
+    for u in recruit_urls:
+        push_manual_url(u, "recruit contact", "recruit")
+
+    for u in group_urls:
+        push_manual_url(u, "group basic", "group")
 
     categories = {}
+
     for cat in ["basic", "facility", "recruit", "group", "contact"]:
         key = f"{cat}_score"
-        rows = sorted(all_candidates, key=lambda x: x[key], reverse=True)
-        rows = [r for r in rows if r[key] > 0][:8]
+        rows = sorted(all_candidates, key=lambda x: (x[key], 1 if x["source_type"] == "public" else 0), reverse=True)
+        rows = [r for r in rows if r[key] > 0][:10]
         categories[cat] = rows
+
+    categories["public"] = [r for r in all_candidates if r["source_type"] == "public"][:10]
 
     return {
         "status": "ok",
