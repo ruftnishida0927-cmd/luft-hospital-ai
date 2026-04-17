@@ -13,7 +13,7 @@ st.set_page_config(
 )
 
 st.title("ルフト病院分析AI")
-st.error("BUILD MARKER: 2026-04-16 11:20")
+st.error("BUILD MARKER: 2026-04-17 09:40")
 st.caption("まずは「病院検索 → 病院特定」を安定化する版")
 
 
@@ -25,45 +25,26 @@ def show_basic_result(result: dict):
 
     if status == "ok" and selected:
         st.success("病院特定に成功しました。")
-
-        c1, c2 = st.columns(2)
-        with c1:
-            st.write(f"**入力病院名**: {selected.get('hospital_name_input', '不明')}")
-            st.write(f"**参照タイトル**: {selected.get('title', '不明')}")
-            st.write(f"**URL**: {selected.get('url', '不明')}")
-            st.write(f"**ソース種別**: {selected.get('source_type', '不明')}")
-            st.write(f"**スコア**: {selected.get('score', '不明')}")
-
-        with c2:
-            st.write(f"**住所**: {selected.get('address', '不明')}")
-            st.write(f"**地域**: {selected.get('region', '不明')}")
-            st.write(f"**最寄駅**: {selected.get('nearest_station', '不明')}")
-            st.write(f"**病床数**: {selected.get('bed_count', '不明')}")
-            st.write(f"**診療科**: {selected.get('departments', '不明')}")
-            st.write(f"**病院種別**: {selected.get('hospital_type', '不明')}")
-
-        st.info("③ 施設基準等検索には進める状態です。")
-
     elif status in ["ambiguous", "low_confidence"] and selected:
         st.warning("病院候補は見つかりましたが、まだ特定精度が不十分です。施設基準検索には進めません。")
-
-        c1, c2 = st.columns(2)
-        with c1:
-            st.write(f"**暫定候補タイトル**: {selected.get('title', '不明')}")
-            st.write(f"**URL**: {selected.get('url', '不明')}")
-            st.write(f"**ソース種別**: {selected.get('source_type', '不明')}")
-            st.write(f"**スコア**: {selected.get('score', '不明')}")
-
-        with c2:
-            st.write(f"**住所**: {selected.get('address', '不明')}")
-            st.write(f"**地域**: {selected.get('region', '不明')}")
-            st.write(f"**最寄駅**: {selected.get('nearest_station', '不明')}")
-            st.write(f"**病床数**: {selected.get('bed_count', '不明')}")
-            st.write(f"**診療科**: {selected.get('departments', '不明')}")
-            st.write(f"**病院種別**: {selected.get('hospital_type', '不明')}")
-
     else:
         st.error("病院候補を特定できませんでした。")
+        return
+
+    c1, c2 = st.columns(2)
+    with c1:
+        st.write(f"**暫定候補タイトル**: {selected.get('title', '不明')}")
+        st.write(f"**URL**: {selected.get('url', '不明')}")
+        st.write(f"**ソース種別**: {selected.get('source_type', '不明')}")
+        st.write(f"**スコア**: {selected.get('score', '不明')}")
+
+    with c2:
+        st.write(f"**住所**: {selected.get('address', '不明')}")
+        st.write(f"**地域**: {selected.get('region', '不明')}")
+        st.write(f"**最寄駅**: {selected.get('nearest_station', '不明')}")
+        st.write(f"**病床数**: {selected.get('bed_count', '不明')}")
+        st.write(f"**診療科**: {selected.get('departments', '不明')}")
+        st.write(f"**病院種別**: {selected.get('hospital_type', '不明')}")
 
 
 def show_candidate_table(result: dict):
@@ -103,7 +84,6 @@ st.sidebar.header("設定")
 debug_mode = st.sidebar.checkbox("デバッグ表示ON", value=False)
 
 hospital_name = st.text_input("病院名を入力してください", placeholder="例：高雄病院")
-
 run = st.button("病院検索を実行", type="primary")
 
 if run:
