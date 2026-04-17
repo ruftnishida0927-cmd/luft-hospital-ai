@@ -1,315 +1,167 @@
 # source_hospital.py
 # -*- coding: utf-8 -*-
 
-import os
 import re
-import html
-from typing import List, Dict, Any
+from urllib.parse import quote_plus
 
-import requests
+from search_provider import (
+    fetch_page_html,
+    extract_links,
+    get_domain,
+)
 
 
-SERPAPI_ENDPOINT = "https://serpapi.com/search.json"
-
-
-TRUSTED_DOMAIN_KEYWORDS = {
-    "official": [
-        ".or.jp",
-        ".hospital",
-        ".hp.",
-        ".med.",
+CATEGORY_KEYWORDS = {
+    "basic": [
+        "病院紹介", "病院概要", "当院について", "病院案内", "医院案内",
+        "アクセス", "所在地", "外来案内", "診療案内", "入院案内",
     ],
-    "public": [
-        "pref.",
-        "city.",
-        "lg.jp",
-        "mhlw.go.jp",
+    "facility": [
+        "施設基準", "加算", "届出", "届け出", "診療報酬",
+        "入院料", "入院基本料", "算定", "掲示事項",
     ],
-    "medical-db": [
-        "byoinnavi.jp",
-        "caloo.jp",
-        "qlife.jp",
-        "medicalnote.jp",
-        "fdoc.jp",
+    "recruit": [
+        "採用", "求人", "募集", "リクルート", "採用情報",
+        "求人情報", "看護師募集", "スタッフ募集", "エントリー",
+    ],
+    "group": [
+        "グループ", "法人概要", "法人案内", "関連施設", "関連病院",
+        "関連事業所", "施設一覧", "病院一覧", "事業所一覧", "法人情報",
+    ],
+    "contact": [
+        "お問い合わせ", "問合せ", "お問合せ", "連絡先", "窓口", "担当",
     ],
 }
 
 
-def get_domain(url: str) -> str:
-    try:
-        from urllib.parse import urlparse
-        return urlparse(url).netloc.lower()
-    except Exception:
-        return ""
-
-
 def classify_source(url: str) -> str:
     domain = get_domain(url)
+
     if not domain:
         return "unknown"
-
-    for key, values in TRUSTED_DOMAIN_KEYWORDS.items():
-        if any(v in domain for v in values):
-            return key
-
-    return "other"
-
-
-def _normalize_name(text: str) -> str:
-    if not text:
-        return ""
-    text = html.unescape(text)
-    text = re.sub(r"\s+", "", text)
-    for word in [
-        "医療法人",
-        "一般財団法人",
-        "社会医療法人",
-        "医療法人社団",
-        "公益財団法人",
-        "社会福祉法人",
-    ]:
-        text = text.replace(word, "")
-    return text
+    if any(x in domain for x in ["lg.jp", "pref.", "city.", "mhlw.go.jp"]):
+        return "public"
+    if any(x in domain for x in ["byoinnavi.jp", "caloo.jp", "qlife.jp", "medicalnote.jp", "fdoc.jp"]):
+        return "medical-db"
+    return "official"
 
 
-def _name_match_score(text: str, hospital_name: str) -> int:
-    if not text or not hospital_name:
-        return 0
-
-    t = _normalize_name(text)
-    h = _normalize_name(hospital_name)
-
-    if not t or not h:
-        return 0
-
-    if h in t:
-        return 8
-    if t in h:
-        return 4
-    return 0
-
-
-def _is_detail_url(url: str) -> bool:
+def is_search_page_url(url: str) -> bool:
     if not url:
         return False
-
-    detail_patterns = [
-        "byoinnavi.jp/clinic/",
-        "caloo.jp/hospitals/detail/",
-        "qlife.jp/hospital_detail_",
-        "medicalnote.jp/hospitals/",
-        "fdoc.jp/clinic/detail/",
-    ]
-    return any(p in url for p in detail_patterns)
-
-
-def _is_search_page(url: str) -> bool:
-    if not url:
-        return False
-
-    search_patterns = [
+    patterns = [
         "freeword?q=",
         "/search/all",
         "search_hospital_result",
         "/search?",
         "/search/",
     ]
-    return any(p in url for p in search_patterns)
+    return any(p in url for p in patterns)
 
 
-def _build_queries(hospital_name: str, prefecture: str = "") -> List[str]:
-    base = hospital_name.strip()
-    area = prefecture.strip()
-
-    queries = [
-        f"{base} {area} 公式".strip(),
-        f"{base} {area} 病院 住所".strip(),
-        f"{base} {area} site:byoinnavi.jp/clinic".strip(),
-        f"{base} {area} site:caloo.jp/hospitals/detail".strip(),
-        f"{base} {area} site:qlife.jp/hospital_detail".strip(),
-        f"{base} {area} site:medicalnote.jp/hospitals".strip(),
-    ]
-    return queries
-
-
-def _serpapi_search(query: str, max_results: int = 10) -> Dict[str, Any]:
-    api_key = os.getenv("SERPAPI_API_KEY", "").strip()
-    if not api_key:
-        return {
-            "ok": False,
-            "error": "SERPAPI_API_KEY が未設定です。",
-            "results": [],
-        }
-
-    params = {
-        "engine": "google",
-        "q": query,
-        "hl": "ja",
-        "gl": "jp",
-        "google_domain": "google.co.jp",
-        "api_key": api_key,
-        "num": max_results,
+def build_helper_links(hospital_name: str, prefecture: str = "") -> dict:
+    q = quote_plus(f"{hospital_name} {prefecture}".strip())
+    return {
+        "google_search": f"https://www.google.com/search?q={q}",
+        "byoinnavi_search": f"https://byoinnavi.jp/freeword?q={q}",
+        "caloo_search": f"https://caloo.jp/search/all?s={q}",
+        "qlife_search": f"https://www.qlife.jp/search_hospital_result?keyword={q}",
     }
 
-    try:
-        r = requests.get(SERPAPI_ENDPOINT, params=params, timeout=20)
-        r.raise_for_status()
-        data = r.json()
 
-        if data.get("error"):
-            return {
-                "ok": False,
-                "error": str(data.get("error")),
-                "results": [],
-            }
-
-        organic = data.get("organic_results", []) or []
-        results = []
-        for row in organic:
-            results.append({
-                "title": row.get("title", "") or "",
-                "url": row.get("link", "") or "",
-                "snippet": row.get("snippet", "") or "",
-                "provider": "serpapi",
-            })
-
-        return {
-            "ok": True,
-            "error": "",
-            "results": results,
-        }
-    except Exception as e:
-        return {
-            "ok": False,
-            "error": str(e),
-            "results": [],
-        }
-
-
-def _score_result_row(title: str, snippet: str, url: str, hospital_name: str, prefecture: str = "") -> int:
+def _category_score(text: str, url: str, category: str) -> int:
     score = 0
+    text = f"{text} {url}"
 
-    source_type = classify_source(url)
-    if source_type == "official":
-        score += 12
-    elif source_type == "public":
-        score += 10
-    elif source_type == "medical-db":
-        score += 6
-    else:
-        score += 1
-
-    if _is_detail_url(url):
-        score += 15
-
-    if _is_search_page(url):
-        score -= 20
-
-    score += _name_match_score(title, hospital_name)
-    score += _name_match_score(snippet, hospital_name)
-
-    if prefecture:
-        if prefecture in title:
-            score += 4
-        if prefecture in snippet:
-            score += 4
-        if prefecture in url:
-            score += 2
-
-    if "病院" in (title or ""):
-        score += 1
+    for kw in CATEGORY_KEYWORDS.get(category, []):
+        if kw in text:
+            score += 3
 
     return score
 
 
-def search_hospital_candidates(hospital_name: str, prefecture: str = "", max_urls: int = 10) -> Dict[str, Any]:
+def discover_related_pages(main_url: str, extra_urls: list[str] | None = None, max_pages: int = 25) -> dict:
+    """
+    メインURLから同一ドメイン内リンクを収集して、
+    basic / facility / recruit / group / contact に分類する
+    """
+    extra_urls = extra_urls or []
+
+    html_text, err = fetch_page_html(main_url, timeout=15)
+    if err:
+        return {
+            "status": "error",
+            "error": err,
+            "main_url": main_url,
+            "all_links": [],
+            "categories": {
+                "basic": [],
+                "facility": [],
+                "recruit": [],
+                "group": [],
+                "contact": [],
+            },
+        }
+
+    same_domain_links = extract_links(main_url, html_text, same_domain_only=True)
+
+    all_candidates = []
     seen = set()
-    candidates = []
-    query_debug = []
 
-    queries = _build_queries(hospital_name, prefecture)
+    # main_url 自体も候補に含める
+    base_rows = [{
+        "url": main_url,
+        "text": "トップページ",
+        "title": "",
+    }] + same_domain_links
 
-    for q in queries:
-        resp = _serpapi_search(q, max_results=10)
-        raw_results = resp.get("results", [])
+    for row in base_rows:
+        url = row.get("url", "")
+        if not url or url in seen:
+            continue
+        seen.add(url)
 
-        scored = []
-        raw_top_urls = []
+        if is_search_page_url(url):
+            continue
 
-        for r in raw_results:
-            url = r.get("url", "")
-            if not url:
-                continue
-
-            raw_top_urls.append(url)
-
-            title = r.get("title", "")
-            snippet = r.get("snippet", "")
-
-            source_type = classify_source(url)
-            is_detail = _is_detail_url(url)
-            is_search = _is_search_page(url)
-
-            # 検索ページは禁止
-            if is_search:
-                continue
-
-            # 候補条件を少し緩める
-            # 詳細URL or 公式/公的 or 医療DB
-            if not is_detail and source_type not in ["official", "public", "medical-db"]:
-                continue
-
-            score = _score_result_row(title, snippet, url, hospital_name, prefecture)
-
-            # 極端に弱いものは除外
-            if score < 6:
-                continue
-
-            scored.append({
-                "query": q,
-                "title": title,
-                "url": url,
-                "snippet": snippet,
-                "provider": r.get("provider", "serpapi"),
-                "source_type": source_type,
-                "domain": get_domain(url),
-                "internal_score": score,
-            })
-
-        scored.sort(key=lambda x: x["internal_score"], reverse=True)
-
-        query_debug.append({
-            "query": q,
-            "ok": resp.get("ok", False),
-            "error": resp.get("error", ""),
-            "raw_result_count": len(raw_results),
-            "raw_top_urls": raw_top_urls[:5],
-            "accepted_count": len(scored),
-            "accepted_urls": [x["url"] for x in scored[:5]],
+        label = f"{row.get('text', '')} {row.get('title', '')}".strip()
+        all_candidates.append({
+            "url": url,
+            "label": label,
+            "basic_score": _category_score(label, url, "basic"),
+            "facility_score": _category_score(label, url, "facility"),
+            "recruit_score": _category_score(label, url, "recruit"),
+            "group_score": _category_score(label, url, "group"),
+            "contact_score": _category_score(label, url, "contact"),
         })
 
-        for row in scored:
-            url = row["url"]
-            if url in seen:
-                continue
-            seen.add(url)
-            candidates.append({
-                "query": row["query"],
-                "title": row["title"],
-                "url": row["url"],
-                "snippet": row["snippet"],
-                "provider": row["provider"],
-                "source_type": row["source_type"],
-                "domain": row["domain"],
-                "internal_score": row["internal_score"],
-            })
-            if len(candidates) >= max_urls:
-                break
+    for u in extra_urls:
+        if not u or u in seen:
+            continue
+        if is_search_page_url(u):
+            continue
+        seen.add(u)
+        all_candidates.append({
+            "url": u,
+            "label": "追加URL",
+            "basic_score": 0,
+            "facility_score": 0,
+            "recruit_score": 10,
+            "group_score": 0,
+            "contact_score": 6,
+        })
 
-        if len(candidates) >= max_urls:
-            break
+    categories = {}
+    for cat in ["basic", "facility", "recruit", "group", "contact"]:
+        key = f"{cat}_score"
+        rows = sorted(all_candidates, key=lambda x: x[key], reverse=True)
+        rows = [r for r in rows if r[key] > 0][:8]
+        categories[cat] = rows
 
     return {
-        "rows": candidates[:max_urls],
-        "debug": query_debug,
+        "status": "ok",
+        "error": "",
+        "main_url": main_url,
+        "all_links": all_candidates[:max_pages],
+        "categories": categories,
     }
