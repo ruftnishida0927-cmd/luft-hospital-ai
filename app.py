@@ -3,7 +3,8 @@
 
 import streamlit as st
 
-from hospital_basic import search_hospital_phase, identify_from_selected_candidate
+from hospital_basic import analyze_hospital_from_url
+from source_hospital import build_helper_links
 
 
 PREFECTURES = [
@@ -27,136 +28,145 @@ st.set_page_config(
 )
 
 st.title("ルフト病院分析AI")
-st.error("BUILD MARKER: 2026-04-17 13:20")
-st.caption("まずは『病院検索 → 候補選択 → 病院特定』を安定化する版")
-
-if "search_result" not in st.session_state:
-    st.session_state.search_result = None
+st.error("BUILD MARKER: 2026-04-17 16:20")
+st.caption("無料前提のURL解析版")
 
 st.sidebar.header("設定")
 debug_mode = st.sidebar.checkbox("デバッグ表示ON", value=False)
 
-hospital_name = st.text_input("病院名を入力してください", placeholder="例：高雄病院")
+hospital_name = st.text_input("病院名", placeholder="例：高雄病院")
 prefecture = st.selectbox("都道府県（分かる場合のみ）", PREFECTURES, index=0)
+main_url = st.text_input("病院URL（必須）", placeholder="https://...")
+recruit_url = st.text_input("求人URL（任意）", placeholder="https://...")
 
-run_search = st.button("① 病院候補を検索", type="primary")
+if hospital_name.strip():
+    helper = build_helper_links(hospital_name.strip(), prefecture)
+    with st.expander("候補URLを探すための補助リンク"):
+        st.markdown(f"[Google検索]({helper['google_search']})")
+        st.markdown(f"[病院なび検索]({helper['byoinnavi_search']})")
+        st.markdown(f"[Caloo検索]({helper['caloo_search']})")
+        st.markdown(f"[QLife検索]({helper['qlife_search']})")
 
-if run_search:
+run = st.button("解析を実行", type="primary")
+
+if run:
     if not hospital_name.strip():
         st.warning("病院名を入力してください。")
         st.stop()
 
-    with st.spinner("候補URL検索中..."):
-        st.session_state.search_result = search_hospital_phase(
+    if not main_url.strip():
+        st.warning("病院URLを入力してください。")
+        st.stop()
+
+    with st.spinner("病院URLを解析中..."):
+        result = analyze_hospital_from_url(
             hospital_name=hospital_name.strip(),
-            prefecture=prefecture,
-            debug=True,  # not_found時も原因を見たいので常時True
+            main_url=main_url.strip(),
+            recruit_url=recruit_url.strip(),
+            debug=debug_mode,
         )
 
-st.subheader("① 病院検索")
+    st.subheader("① 病院基本情報 / 病院機能")
+    basic = result.get("basic_info", {})
 
-search_result = st.session_state.search_result
+    c1, c2 = st.columns(2)
+    with c1:
+        st.write(f"**病院名**: {result.get('hospital_name', '不明')}")
+        st.write(f"**メインURL**: {result.get('main_url', '不明')}")
+        st.write(f"**ソース種別**: {result.get('source_type', '不明')}")
+        st.write(f"**住所**: {basic.get('address', '不明')}")
+        st.write(f"**地域**: {basic.get('region', '不明')}")
 
-if search_result:
-    if search_result.get("status") == "not_found":
-        st.error("有効な候補URLが見つかりませんでした。")
+    with c2:
+        st.write(f"**最寄駅**: {basic.get('nearest_station', '不明')}")
+        st.write(f"**病床数**: {basic.get('bed_count', '不明')}")
+        st.write(f"**診療科**: {basic.get('departments', '不明')}")
+        st.write(f"**病院種別**: {basic.get('hospital_type', '不明')}")
+        hints = basic.get("function_hints", [])
+        st.write(f"**病院機能の手掛かり**: {'、'.join(hints) if hints else '不明'}")
 
-        debug_info = search_result.get("debug_info", {})
-        query_debug = debug_info.get("query_debug", [])
-
-        if query_debug:
-            st.write("**検索結果の概要**")
-            summary_rows = []
-            for row in query_debug:
-                summary_rows.append({
-                    "query": row.get("query", ""),
-                    "ok": row.get("ok", ""),
-                    "error": row.get("error", ""),
-                    "raw_result_count": row.get("raw_result_count", ""),
-                    "accepted_count": row.get("accepted_count", ""),
-                    "raw_top_urls": " | ".join(row.get("raw_top_urls", [])[:3]),
-                    "accepted_urls": " | ".join(row.get("accepted_urls", [])[:3]),
-                })
-            st.dataframe(summary_rows, use_container_width=True)
-
-        if debug_mode:
-            st.subheader("デバッグ情報")
-            st.json(debug_info)
-
+    st.subheader("② 施設基準 / 加算")
+    facility = result.get("facility_info", {})
+    if facility.get("status") == "ok":
+        st.success("施設基準 / 加算に関する記載を検出しました。")
     else:
-        candidates = search_result.get("candidates", [])
-        st.success(f"候補URLを {len(candidates)} 件取得しました。")
+        st.warning("施設基準 / 加算の記載を確認できませんでした。")
 
-        options = []
-        url_map = {}
+    st.write("**入院料 / 基本料系**")
+    basic_rates = facility.get("basic_rates", [])
+    if basic_rates:
+        for row in basic_rates:
+            st.write(f"- {row}")
+    else:
+        st.write("不明")
 
-        for i, c in enumerate(candidates, start=1):
-            label = f"{i}. [{c.get('source_type','不明')}] {c.get('title','無題')} | {c.get('url','')}"
-            options.append(label)
-            url_map[label] = c.get("url", "")
+    st.write("**加算系**")
+    additions = facility.get("additions", [])
+    if additions:
+        for row in additions:
+            st.write(f"- {row}")
+    else:
+        st.write("不明")
 
-        selected_label = st.selectbox("② 候補を選択してください", options)
-        selected_url = url_map[selected_label]
+    st.write("**その他の届出・掲示事項候補**")
+    other_items = facility.get("other_items", [])
+    if other_items:
+        for row in other_items:
+            st.write(f"- {row}")
+    else:
+        st.write("不明")
 
-        candidate_rows = []
-        for i, c in enumerate(candidates, start=1):
-            candidate_rows.append({
-                "No": i,
-                "source_type": c.get("source_type", ""),
-                "title": c.get("title", ""),
-                "url": c.get("url", ""),
-                "provider": c.get("provider", ""),
-                "query": c.get("query", ""),
-                "internal_score": c.get("internal_score", 0),
-            })
-        st.dataframe(candidate_rows, use_container_width=True)
+    st.subheader("③ 求人窓口候補")
+    contact = result.get("staff_contact_info", {})
+    if contact.get("status") == "ok":
+        st.success("採用窓口候補を検出しました。")
+    else:
+        st.warning("採用窓口候補を確認できませんでした。")
 
-        run_identify = st.button("③ 選択候補で病院特定")
+    st.write("**窓口候補の記載**")
+    contact_lines = contact.get("contact_lines", [])
+    if contact_lines:
+        for row in contact_lines:
+            st.write(f"- {row}")
+    else:
+        st.write("不明")
 
-        st.subheader("② 病院特定結果")
-        if run_identify:
-            with st.spinner("選択候補を解析中..."):
-                result = identify_from_selected_candidate(
-                    hospital_name=hospital_name.strip(),
-                    selected_url=selected_url,
-                    prefecture=prefecture,
-                    debug=True,
-                )
+    st.write("**電話番号候補**")
+    phones = contact.get("phones", [])
+    if phones:
+        for row in phones:
+            st.write(f"- {row}")
+    else:
+        st.write("不明")
 
-            if result.get("status") == "ok":
-                st.success("選択候補の解析に成功しました。")
-            elif result.get("status") == "low_confidence":
-                st.warning("候補は解析できましたが、住所等の抽出がまだ弱いです。")
+    st.write("**メール候補**")
+    emails = contact.get("emails", [])
+    if emails:
+        for row in emails:
+            st.write(f"- {row}")
+    else:
+        st.write("不明")
+
+    st.subheader("④ グループ情報候補")
+    group = result.get("group_info", {})
+    if group.get("status") == "ok":
+        st.success("グループ/法人関連の記載を検出しました。")
+        for row in group.get("candidates", []):
+            st.write(f"- {row}")
+    else:
+        st.warning("グループ情報を確認できませんでした。")
+
+    st.subheader("⑤ 自動探索ページ一覧")
+    discovered = result.get("discovered_pages", {})
+    for cat in ["basic", "facility", "recruit", "group", "contact"]:
+        rows = discovered.get(cat, [])
+        with st.expander(f"{cat} ({len(rows)}件)"):
+            if rows:
+                for row in rows:
+                    st.write(f"- {row.get('label', '')} | {row.get('url', '')}")
             else:
-                st.error("選択候補を特定できませんでした。")
+                st.write("該当なし")
 
-            selected = result.get("selected")
-            if selected:
-                c1, c2 = st.columns(2)
-                with c1:
-                    st.write(f"**暫定候補タイトル**: {selected.get('title', '不明')}")
-                    st.write(f"**URL**: {selected.get('url', '不明')}")
-                    st.write(f"**ソース種別**: {selected.get('source_type', '不明')}")
-                    st.write(f"**スコア**: {selected.get('score', '不明')}")
-
-                with c2:
-                    st.write(f"**住所**: {selected.get('address', '不明')}")
-                    st.write(f"**地域**: {selected.get('region', '不明')}")
-                    st.write(f"**最寄駅**: {selected.get('nearest_station', '不明')}")
-                    st.write(f"**病床数**: {selected.get('bed_count', '不明')}")
-                    st.write(f"**診療科**: {selected.get('departments', '不明')}")
-                    st.write(f"**病院種別**: {selected.get('hospital_type', '不明')}")
-
-            st.subheader("③ 施設基準等検索")
-            if result.get("status") == "ok":
-                st.info("次の段階へ進めますが、今回はまだ未実装です。")
-            else:
-                st.warning("病院特定が不十分なため、施設基準等検索には進めません。")
-
-            if debug_mode:
-                st.subheader("デバッグ情報")
-                st.json(result.get("debug_info", {}))
-
-        elif debug_mode:
-            st.subheader("デバッグ情報")
-            st.json(search_result.get("debug_info", {}))
+    if debug_mode:
+        st.subheader("デバッグ情報")
+        st.json(result.get("debug_info", {}))
