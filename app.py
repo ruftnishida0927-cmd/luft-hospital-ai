@@ -27,7 +27,7 @@ st.set_page_config(
 )
 
 st.title("ルフト病院分析AI")
-st.error("BUILD MARKER: 2026-04-17 11:40")
+st.error("BUILD MARKER: 2026-04-17 13:20")
 st.caption("まずは『病院検索 → 候補選択 → 病院特定』を安定化する版")
 
 if "search_result" not in st.session_state:
@@ -50,7 +50,7 @@ if run_search:
         st.session_state.search_result = search_hospital_phase(
             hospital_name=hospital_name.strip(),
             prefecture=prefecture,
-            debug=debug_mode,
+            debug=True,  # not_found時も原因を見たいので常時True
         )
 
 st.subheader("① 病院検索")
@@ -60,9 +60,29 @@ search_result = st.session_state.search_result
 if search_result:
     if search_result.get("status") == "not_found":
         st.error("有効な候補URLが見つかりませんでした。")
+
+        debug_info = search_result.get("debug_info", {})
+        query_debug = debug_info.get("query_debug", [])
+
+        if query_debug:
+            st.write("**検索結果の概要**")
+            summary_rows = []
+            for row in query_debug:
+                summary_rows.append({
+                    "query": row.get("query", ""),
+                    "ok": row.get("ok", ""),
+                    "error": row.get("error", ""),
+                    "raw_result_count": row.get("raw_result_count", ""),
+                    "accepted_count": row.get("accepted_count", ""),
+                    "raw_top_urls": " | ".join(row.get("raw_top_urls", [])[:3]),
+                    "accepted_urls": " | ".join(row.get("accepted_urls", [])[:3]),
+                })
+            st.dataframe(summary_rows, use_container_width=True)
+
         if debug_mode:
             st.subheader("デバッグ情報")
-            st.json(search_result.get("debug_info", {}))
+            st.json(debug_info)
+
     else:
         candidates = search_result.get("candidates", [])
         st.success(f"候補URLを {len(candidates)} 件取得しました。")
@@ -100,7 +120,7 @@ if search_result:
                     hospital_name=hospital_name.strip(),
                     selected_url=selected_url,
                     prefecture=prefecture,
-                    debug=debug_mode,
+                    debug=True,
                 )
 
             if result.get("status") == "ok":
