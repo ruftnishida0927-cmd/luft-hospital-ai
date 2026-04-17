@@ -1,43 +1,39 @@
-from __future__ import annotations
+from .crawl import crawl_site
+from .extract import extract_evidences
+from .models import AnalysisResult
+from .report import build_summary
+from .resolve import resolve_facility_lists, resolve_fields, resolve_group, resolve_recruit
+from .sources import detect_missing_source_layers, summarize_sources
 
-from datetime import datetime
-from src.search_utils import search_web
+
+def analyze_hospital(start_url: str, hospital_name: str = "") -> AnalysisResult:
+    pages = crawl_site(start_url)
+    evidences = extract_evidences(pages)
+    resolved = resolve_fields(evidences)
+    facility_basic, facility_addons = resolve_facility_lists(evidences)
+    recruit_fields = resolve_recruit(evidences)
+    group_entities = resolve_group(evidences)
+
+    if not hospital_name:
+        hospital_name = _infer_hospital_name(pages) or "不明"
+
+    result = AnalysisResult(
+        hospital_name=hospital_name,
+        canonical_url=start_url,
+        pages=pages,
+        resolved=resolved,
+        facility_basic_fee=facility_basic,
+        facility_addons=facility_addons,
+        recruit_fields=recruit_fields,
+        group_entities=group_entities,
+        notes=detect_missing_source_layers(pages),
+    )
+    return result
 
 
-def collect_policy_updates() -> list:
-    queries = [
-        'site:mhlw.go.jp 診療報酬 改定 通知 令和8年',
-        'site:mhlw.go.jp 調剤報酬 改定 通知 令和8年',
-        'site:mhlw.go.jp 施設基準 通知 令和8年',
-        'site:mhlw.go.jp 中医協 総会 診療報酬 令和8年',
-    ]
-    items = []
-    seen = set()
-    for query in queries:
-        for result in search_web(query, max_results=3):
-            key = result["url"]
-            if key in seen:
-                continue
-            seen.add(key)
-            items.append(
-                {
-                    "updated_at": datetime.now().isoformat(timespec="seconds"),
-                    "category": "制度更新",
-                    "title": result["title"],
-                    "summary": result["snippet"],
-                    "source_name": "web_search",
-                    "source_url": result["url"],
-                }
-            )
-    if not items:
-        items.append(
-            {
-                "updated_at": datetime.now().isoformat(timespec="seconds"),
-                "category": "制度更新",
-                "title": "制度更新情報を取得できませんでした",
-                "summary": "実行環境から外部サイトへ接続できないか、検索結果が取得できませんでした。",
-                "source_name": "system",
-                "source_url": None,
-            }
-        )
-    return items
+def _infer_hospital_name(pages):
+    for p in pages:
+        for token in ["病院", "クリニック", "医院", "メディカルセンター", "センター"]:
+            if token in p.title:
+                return p.title.split("|")[0].split("｜")[0].strip()
+    return ""
