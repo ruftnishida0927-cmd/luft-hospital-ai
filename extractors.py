@@ -26,24 +26,8 @@ DEPARTMENT_KEYWORDS = [
 ]
 
 ADDRESS_NOISE_WORDS = [
-    "口コミ",
-    "評判",
-    "近くの病院",
-    "周辺",
-    "一覧",
-    "ランキング",
-    "地図を見る",
-    "他の医療機関",
-    "近隣",
-    "広告",
-    "スポンサー",
-    "路線",
-    "駅一覧",
-    "診療時間",
-    "予約",
-    "QLife",
-    "病院なび",
-    "Caloo",
+    "口コミ", "評判", "周辺", "一覧", "ランキング", "広告", "スポンサー",
+    "路線", "駅一覧", "予約", "病院なび", "Caloo", "QLife"
 ]
 
 
@@ -57,22 +41,17 @@ def clean_text(text: str) -> str:
 
 
 def split_lines(text: str):
-    text = clean_text(text)
-    return [line.strip() for line in text.split("\n") if line.strip()]
+    return [line.strip() for line in clean_text(text).split("\n") if line.strip()]
 
 
 def extract_prefecture(text: str) -> str:
-    if not text:
-        return "不明"
     for p in PREFECTURES:
         if p in text:
             return p
     return "不明"
 
 
-def _contains_full_address_shape(text: str) -> bool:
-    if not text:
-        return False
+def _contains_address_shape(text: str) -> bool:
     return re.search(r"(北海道|..県|..府|東京都).{0,40}(市|区|町|村)", text) is not None
 
 
@@ -87,15 +66,14 @@ def extract_address(text: str) -> str:
     lines = split_lines(text)
     candidates = []
 
-    # 行ベース
     for line in lines:
         if any(noise in line for noise in ADDRESS_NOISE_WORDS):
             continue
-        if not _contains_full_address_shape(line):
+        if not _contains_address_shape(line):
             continue
 
         normalized = _normalize_address_candidate(line)
-        if not _contains_full_address_shape(normalized):
+        if not _contains_address_shape(normalized):
             continue
 
         score = 0
@@ -105,22 +83,15 @@ def extract_address(text: str) -> str:
             score += 10
         if "アクセス" in line:
             score += 2
-        if len(normalized) <= 60:
-            score += 2
-        if len(normalized) > 100:
-            score -= 3
 
         m = re.search(r"((北海道|..県|..府|東京都).{0,60}?(市|区|町|村).{0,40})", normalized)
         if m:
-            addr = _normalize_address_candidate(m.group(1))
-            candidates.append((score, addr))
+            candidates.append((score, m.group(1)))
 
-    # ラベル付き抽出
-    patterns = [
+    for pat in [
         r"(所在地|住所)[:：]?\s*((北海道|..県|..府|東京都).{0,60}?(市|区|町|村).{0,40})",
         r"(アクセス)[:：]?\s*((北海道|..県|..府|東京都).{0,60}?(市|区|町|村).{0,40})",
-    ]
-    for pat in patterns:
+    ]:
         for m in re.finditer(pat, text):
             label = m.group(1)
             addr = _normalize_address_candidate(m.group(2))
@@ -128,18 +99,13 @@ def extract_address(text: str) -> str:
             if any(noise in addr for noise in ADDRESS_NOISE_WORDS):
                 continue
 
-            score = 0
-            if label in ["所在地", "住所"]:
-                score += 12
-            elif label == "アクセス":
-                score += 4
-
+            score = 12 if label in ["所在地", "住所"] else 4
             candidates.append((score, addr))
 
     if not candidates:
         return "不明"
 
-    candidates = sorted(candidates, key=lambda x: (x[0], -abs(len(x[1]) - 25)), reverse=True)
+    candidates.sort(key=lambda x: x[0], reverse=True)
     return candidates[0][1]
 
 
@@ -149,68 +115,52 @@ def extract_region(address: str) -> str:
 
     m = re.search(r"(北海道|..県|..府|東京都)(.{1,12}?(市|区|町|村))", address)
     if m:
-        return f"{m.group(1)}{m.group(2)}".strip()
+        return f"{m.group(1)}{m.group(2)}"
 
     pref = extract_prefecture(address)
-    if pref != "不明":
-        return pref
-
-    return "不明"
+    return pref if pref != "不明" else "不明"
 
 
 def extract_nearest_station(text: str) -> str:
-    lines = split_lines(text)
-
-    patterns = [
-        r"([^\s　]{1,20}駅)\s*(より)?\s*(徒歩|バス|車)\s*\d{1,2}分",
-        r"最寄り駅[:：]?\s*([^\s　]{1,20}駅)",
-        r"アクセス[:：]?\s*([^\s　]{1,20}駅)",
-    ]
-
-    for line in lines:
-        for pat in patterns:
+    for line in split_lines(text):
+        for pat in [
+            r"([^\s　]{1,20}駅)\s*(より)?\s*(徒歩|バス|車)\s*\d{1,2}分",
+            r"最寄り駅[:：]?\s*([^\s　]{1,20}駅)",
+            r"アクセス[:：]?\s*([^\s　]{1,20}駅)",
+        ]:
             m = re.search(pat, line)
             if m:
                 for g in m.groups():
                     if g and "駅" in g:
                         return g.strip()
-
     return "不明"
 
 
 def extract_bed_count(text: str) -> str:
-    lines = split_lines(text)
-
-    patterns = [
-        r"病床数[:：]?\s*(\d{1,4})\s*床",
-        r"許可病床数[:：]?\s*(\d{1,4})\s*床",
-        r"(\d{1,4})\s*床",
-    ]
-
-    for line in lines:
-        for pat in patterns:
+    for line in split_lines(text):
+        for pat in [
+            r"病床数[:：]?\s*(\d{1,4})\s*床",
+            r"許可病床数[:：]?\s*(\d{1,4})\s*床",
+            r"(\d{1,4})\s*床",
+        ]:
             m = re.search(pat, line)
             if m:
                 return f"{m.group(1)}床"
-
     return "不明"
 
 
 def extract_departments(text: str) -> str:
-    found = []
     src = clean_text(text)
-
+    found = []
     for dep in DEPARTMENT_KEYWORDS:
         if dep in src and dep not in found:
             found.append(dep)
-
     return "、".join(found[:12]) if found else "不明"
 
 
 def extract_hospital_type(text: str, title: str = "") -> str:
     src = f"{title}\n{text}"
-
-    explicit_types = [
+    for t in [
         "精神科病院",
         "療養型病院",
         "ケアミックス病院",
@@ -218,26 +168,18 @@ def extract_hospital_type(text: str, title: str = "") -> str:
         "大学病院",
         "総合病院",
         "リハビリテーション病院",
-    ]
-
-    for t in explicit_types:
+    ]:
         if t in src:
             return t
-
     return "不明"
 
 
 def extract_hospital_name_from_title(title: str) -> str:
     if not title:
         return "不明"
-
     title = clean_text(title)
     title = re.sub(r"\s*[\-|｜|].*$", "", title).strip()
-
-    if "病院" in title:
-        return title
-
-    return "不明"
+    return title if "病院" in title else "不明"
 
 
 def is_generic_ambiguous_hospital_name(hospital_name: str) -> bool:
@@ -245,44 +187,21 @@ def is_generic_ambiguous_hospital_name(hospital_name: str) -> bool:
         return False
 
     normalized = re.sub(r"\s+", "", hospital_name)
-
     generic_words = [
-        "中央病院",
-        "市民病院",
-        "総合病院",
-        "記念病院",
-        "徳洲会病院",
-        "済生会病院",
-        "赤十字病院",
-        "厚生病院",
-        "第一病院",
-        "第二病院",
-        "高雄病院",
+        "中央病院", "市民病院", "総合病院", "記念病院", "徳洲会病院",
+        "済生会病院", "赤十字病院", "厚生病院", "第一病院", "第二病院", "高雄病院",
     ]
-    if normalized in generic_words:
-        return True
-
-    if len(normalized) <= 5 and normalized.endswith("病院"):
-        return True
-
-    return False
+    return normalized in generic_words or (len(normalized) <= 5 and normalized.endswith("病院"))
 
 
 def extract_basic_facts(text: str, title: str = "", url: str = "") -> dict:
     address = extract_address(text)
-    region = extract_region(address)
-    station = extract_nearest_station(text)
-    bed_count = extract_bed_count(text)
-    departments = extract_departments(text)
-    hospital_type = extract_hospital_type(text, title=title)
-    name_from_title = extract_hospital_name_from_title(title)
-
     return {
-        "name_candidate": name_from_title,
+        "name_candidate": extract_hospital_name_from_title(title),
         "address": address,
-        "region": region,
-        "nearest_station": station,
-        "bed_count": bed_count,
-        "departments": departments,
-        "hospital_type": hospital_type,
+        "region": extract_region(address),
+        "nearest_station": extract_nearest_station(text),
+        "bed_count": extract_bed_count(text),
+        "departments": extract_departments(text),
+        "hospital_type": extract_hospital_type(text, title=title),
     }
